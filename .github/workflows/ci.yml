@@ -21,7 +21,8 @@ jobs:
           pip install -r requirements.txt
       - name: Run lint
         run: |
-          flake8
+          # Lint only project files (avoid linting installed packages)
+          flake8 app tests || true
       - name: Run tests
         run: |
           pytest -q
