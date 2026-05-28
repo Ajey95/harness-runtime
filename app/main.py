@@ -14,7 +14,11 @@ runtime = ExecutionRuntime()
 # Allow CORS for local frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -30,8 +34,15 @@ async def health():
 async def create_task(req: TaskRequest):
     # generate task id and launch task in background
     task_id = str(__import__("uuid").uuid4())
-    asyncio.create_task(runtime.start_task(req.description, req.repo_path, task_id=task_id))
-    return {"status": "started", "task_id": task_id, "description": req.description}
+    asyncio.create_task(
+        runtime.start_task(req.description, req.repo_path, task_id=task_id)
+    )
+
+    return {
+        "status": "started",
+        "task_id": task_id,
+        "description": req.description,
+    }
 
 
 @app.get("/traces")
@@ -45,7 +56,12 @@ async def list_traces(task_id: Optional[str] = None):
 
 
 @app.post("/approvals/{task_id}")
-async def post_approval(task_id: str, approved: bool = True, approver: Optional[str] = None, note: Optional[str] = None):
+async def post_approval(
+    task_id: str,
+    approved: bool = True,
+    approver: Optional[str] = None,
+    note: Optional[str] = None,
+) -> dict:
     db.save_approval(task_id, approved, approver, note)
     return {"task_id": task_id, "approved": approved}
 
