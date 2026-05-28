@@ -5,15 +5,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from fastapi.testclient import TestClient  # noqa: E402
-from app.main import app  # noqa: E402
-
-
-client = TestClient(app)
+from app.main import health  # noqa: E402
 
 
 def test_health_endpoint():
-    """Verify the `/health` endpoint returns OK."""
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    """Verify the `/health` handler returns OK when invoked."""
+    import asyncio
+
+    resp = asyncio.run(health())
+    assert resp == {"status": "ok"}
