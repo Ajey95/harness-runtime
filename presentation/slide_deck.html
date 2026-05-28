@@ -1,0 +1,129 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>Harness Runtime — Pitch Deck</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        body {
+            font-family: Inter, Arial, sans-serif;
+            background: #0f172a;
+            color: #e6eef8;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0
+        }
+
+        .deck {
+            width: 900px;
+            height: 600px;
+            background: linear-gradient(180deg, #071033 0%, #0b1a3a 100%);
+            border-radius: 12px;
+            padding: 36px;
+            box-shadow: 0 20px 60px rgba(2, 6, 23, .6);
+            position: relative
+        }
+
+        h1,
+        h2 {
+            margin: 0
+        }
+
+        .controls {
+            position: absolute;
+            right: 18px;
+            bottom: 18px
+        }
+
+        .slide {
+            display: none
+        }
+
+        .active {
+            display: block
+        }
+
+        .card {
+            background: rgba(255, 255, 255, .03);
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 12px
+        }
+
+        .accent {
+            color: #7dd3fc
+        }
+    </style>
+</head>
+
+<body>
+    <div class="deck">
+        <div id="s1" class="slide active">
+            <h1>Problem</h1>
+            <div class="card">
+                <h2 class="accent">Opaque & risky autonomous fixes</h2>
+                <p>AI agents can edit repos, run commands, and propose patches — but teams lack runtime supervision,
+                    traceability, and enforced approvals. This leads to hallucinated fixes, unsafe changes, and
+                    operational risk.</p>
+            </div>
+        </div>
+
+        <div id="s2" class="slide">
+            <h1>Solution & User Journey</h1>
+            <div class="card">
+                <ol>
+                    <li>Trigger: infra alert or repo issue</li>
+                    <li>Runtime: orchestrates agent task, captures traces</li>
+                    <li>Middleware: risk scoring + approval workflow</li>
+                    <li>Verify: run tests & linters, persist results</li>
+                    <li>Dashboard: human-inspectable trace + approval</li>
+                </ol>
+            </div>
+        </div>
+
+        <div id="s3" class="slide">
+            <h1>Tools & Tech Stack</h1>
+            <div class="card">
+                <ul>
+                    <li><strong>Backend:</strong> FastAPI (async orchestration)</li>
+                    <li><strong>Agent:</strong> Codex CLI adapter (pluggable)</li>
+                    <li><strong>Verification:</strong> pytest, flake8 (runnable tasks)</li>
+                    <li><strong>Frontend:</strong> Next.js dashboard</li>
+                    <li><strong>CI:</strong> GitHub Actions</li>
+                    <li><strong>Storage:</strong> SQLite (MVP), Postgres for scale</li>
+                </ul>
+            </div>
+        </div>
+
+        <div id="s4" class="slide">
+            <h1>Target Audience</h1>
+            <div class="card">
+                <p class="accent">Who benefits?</p>
+                <ul>
+                    <li>Platform engineers & SREs — safe remediation</li>
+                    <li>DevOps teams — governed automation</li>
+                    <li>Security teams — auditable tool calls</li>
+                    <li>Researchers — reproducible agent traces</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="controls">
+            <button id="prev">◀ Prev</button>
+            <button id="next">Next ▶</button>
+        </div>
+    </div>
+
+    <script>
+        const slides = ['s1', 's2', 's3', 's4']
+        let idx = 0
+        function show(i) { slides.forEach((id, j) => document.getElementById(id).classList.toggle('active', j === i)) }
+        document.getElementById('next').onclick = () => { idx = (idx + 1) % slides.length; show(idx) }
+        document.getElementById('prev').onclick = () => { idx = (idx - 1 + slides.length) % slides.length; show(idx) }
+    </script>
+</body>
+
+</html>
