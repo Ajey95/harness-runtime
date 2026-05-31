@@ -29,6 +29,21 @@ except Exception:
     Counter = lambda *a, **k: _NoOpMetric()
     Histogram = lambda *a, **k: _NoOpMetric()
 
+# A local no-op metric to use when metrics are already registered
+class _NoOpMetricLocal:
+    def inc(self, *a, **k):
+        return None
+
+    def time(self):
+        class _Ctx:
+            def __enter__(self):
+                return None
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        return _Ctx()
+
 
 class ExecutionRuntime:
     """
@@ -39,10 +54,21 @@ class ExecutionRuntime:
     def __init__(self) -> None:
         self.traces: Dict[str, List[TraceEntry]] = {}
         self.middleware = ApprovalMiddleware()
-        # Prometheus metrics
-        self.tasks_started = Counter("hr_tasks_started_total", "Total tasks started")
-        self.tasks_completed = Counter("hr_tasks_completed_total", "Total tasks completed")
-        self.verification_duration = Histogram("hr_verification_duration_seconds", "Verification duration seconds")
+        # Prometheus metrics (guard against duplicate registration in test runs)
+        try:
+            self.tasks_started = Counter("hr_tasks_started_total", "Total tasks started")
+            self.tasks_completed = Counter("hr_tasks_completed_total", "Total tasks completed")
+            self.verification_duration = Histogram("hr_verification_duration_seconds", "Verification duration seconds")
+        except ValueError:
+            # Prometheus already registered these names in this process (tests), use no-op
+            self.tasks_started = _NoOpMetricLocal()
+            self.tasks_completed = _NoOpMetricLocal()
+            self.verification_duration = _NoOpMetricLocal()
+        except Exception:
+            # Any other errors -> fall back to no-op
+            self.tasks_started = _NoOpMetricLocal()
+            self.tasks_completed = _NoOpMetricLocal()
+            self.verification_duration = _NoOpMetricLocal()
 
     @staticmethod
     def _trace_stage_summary(traces: List[TraceEntry]) -> Dict[str, Any]:
