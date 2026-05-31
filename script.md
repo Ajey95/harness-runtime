@@ -5,9 +5,10 @@ This file contains the demo script (what to say and do) and the narration for ea
 ## Demo flow (2–4 minutes)
 
 1. Start the backend server and show health endpoint.
-2. Trigger a remediation task using `POST /tasks` and show trace capture in `GET /traces`.
-3. Start verification `POST /verify/{task_id}` and poll `GET /verify/{task_id}`.
-4. Show the dashboard and the approvals list; demonstrate approving a medium-risk action.
+2. Trigger the golden workflow using `POST /incidents/demo-docker`.
+3. Show the pending approval state in `GET /traces` and the dashboard.
+4. Approve the task with `POST /approvals/{task_id}` and show automatic resume.
+5. Show verification, incident recovery, and the persisted execution report.
 
 Keep the demo concise: highlight supervision, traceability, and verification.
 
@@ -36,16 +37,16 @@ Slide 4 — Target Audience:
 ## Commands and notes
 
 - Start server: `uvicorn app.main:app --reload --port 8000`
-- Trigger task (PowerShell example):
+- Trigger demo incident (PowerShell example):
 
 ```powershell
-Invoke-RestMethod -Uri http://127.0.0.1:8000/tasks -Method POST -Body (@{description='Demo run'} | ConvertTo-Json) -ContentType 'application/json'
+Invoke-RestMethod -Uri http://127.0.0.1:8000/incidents/demo-docker -Method POST -Body (@{auto_start=$true} | ConvertTo-Json) -ContentType 'application/json'
 ```
 
-- Start verification:
+- Approve a paused task:
 
 ```powershell
-Invoke-RestMethod -Uri http://127.0.0.1:8000/verify/<task_id> -Method POST
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/approvals/<task_id>?approved=true&approver=ops&note=approved" -Method POST
 ```
 
 ---

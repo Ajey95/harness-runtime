@@ -58,6 +58,18 @@ def init_db() -> None:
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS incidents (
+            incident_id TEXT PRIMARY KEY,
+            task_id TEXT,
+            status TEXT,
+            payload TEXT,
+            created_at TEXT,
+            updated_at TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -238,6 +250,15 @@ def save_report(task_id: str, status: str, report: Any) -> None:
     conn.close()
 
 
+def update_report(task_id: str, status: str, updates: Dict[str, Any]) -> None:
+    existing = get_report(task_id)
+    report = existing["report"] if existing else {}
+    if not isinstance(report, dict):
+        report = {"value": report}
+    report.update(updates)
+    save_report(task_id, status, report)
+
+
 def get_report(task_id: str):
     conn = _conn()
     cur = conn.cursor()
@@ -271,6 +292,98 @@ def get_reports():
             "status": r["status"],
             "report": json.loads(r["report"]) if r["report"] else None,
             "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def save_incident(
+    incident_id: str,
+    payload: Dict[str, Any],
+    status: str = "detected",
+    task_id: Optional[str] = None,
+) -> None:
+    conn = _conn()
+    cur = conn.cursor()
+    now = datetime.now(timezone.utc).isoformat()
+    sql = (
+        "INSERT OR REPLACE INTO incidents (incident_id, task_id, status, "
+        "payload, created_at, updated_at) VALUES (?, ?, ?, ?, "
+        "COALESCE((SELECT created_at FROM incidents "
+        "WHERE incident_id = ?), ?), ?)"
+    )
+    cur.execute(
+        sql,
+        (
+            incident_id,
+            task_id,
+            status,
+            json.dumps(payload, default=str),
+            incident_id,
+            now,
+            now,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_incident(
+    incident_id: str,
+    status: Optional[str] = None,
+    task_id: Optional[str] = None,
+    payload_updates: Optional[Dict[str, Any]] = None,
+):
+    incident = get_incident(incident_id)
+    if not incident:
+        return None
+    payload = incident["payload"]
+    if payload_updates:
+        payload.update(payload_updates)
+    save_incident(
+        incident_id,
+        payload,
+        status=status or incident["status"],
+        task_id=task_id if task_id is not None else incident.get("task_id"),
+    )
+    return get_incident(incident_id)
+
+
+def get_incident(incident_id: str):
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM incidents WHERE incident_id = ?",
+        (incident_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "incident_id": row["incident_id"],
+        "task_id": row["task_id"],
+        "status": row["status"],
+        "payload": json.loads(row["payload"]) if row["payload"] else {},
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def get_incidents():
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM incidents ORDER BY created_at DESC")
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "incident_id": r["incident_id"],
+            "task_id": r["task_id"],
+            "status": r["status"],
+            "payload": json.loads(r["payload"]) if r["payload"] else {},
+            "created_at": r["created_at"],
+            "updated_at": r["updated_at"],
         }
         for r in rows
     ]

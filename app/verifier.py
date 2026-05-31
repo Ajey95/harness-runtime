@@ -2,10 +2,12 @@ import asyncio
 import shlex
 import shutil
 import subprocess
+import urllib.request
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from . import db
+from .incidents import synthetic_container_check, synthetic_health_check
 
 ALLOWED_VERIFICATION_COMMANDS = {
     "pytest -q",
@@ -100,10 +102,126 @@ async def _run_with_retries(
     }
 
 
+async def _run_health_check(health_url: Optional[str]) -> Dict[str, Any]:
+    synthetic = synthetic_health_check(health_url)
+    if synthetic:
+        return synthetic
+    if not health_url:
+        return {
+            "name": "health_check",
+            "status": "skipped",
+            "stdout": "no health_url provided",
+            "stderr": "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    if not health_url.startswith(("http://", "https://")):
+        return {
+            "name": "health_check",
+            "target": health_url,
+            "status": "failed",
+            "returncode": 1,
+            "stdout": "",
+            "stderr": "unsupported health check URL",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _run():
+        try:
+            with urllib.request.urlopen(health_url, timeout=5) as response:
+                body = response.read(256).decode("utf-8", errors="replace")
+                code = int(response.status)
+            passed = 200 <= code < 300
+            return {
+                "name": "health_check",
+                "target": health_url,
+                "status": "passed" if passed else "failed",
+                "returncode": 0 if passed else 1,
+                "stdout": body,
+                "stderr": "",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+        except Exception as exc:
+            return {
+                "name": "health_check",
+                "target": health_url,
+                "status": "failed",
+                "returncode": 1,
+                "stdout": "",
+                "stderr": repr(exc),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+
+    return await asyncio.to_thread(_run)
+
+
+async def _run_container_check(
+    container_name: Optional[str],
+) -> Dict[str, Any]:
+    synthetic = synthetic_container_check(container_name)
+    if synthetic:
+        return synthetic
+    if not container_name:
+        return {
+            "name": "container_status",
+            "status": "skipped",
+            "stdout": "no container_name provided",
+            "stderr": "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    docker_bin = shutil.which("docker")
+    if docker_bin is None:
+        return {
+            "name": "container_status",
+            "target": container_name,
+            "status": "degraded",
+            "returncode": None,
+            "stdout": "",
+            "stderr": "docker not available",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _run():
+        status_template = (
+            "{{if .State.Health}}"
+            "{{.State.Health.Status}}"
+            "{{else}}"
+            "{{.State.Status}}"
+            "{{end}}"
+        )
+        completed = subprocess.run(
+            [
+                docker_bin,
+                "inspect",
+                "--format",
+                status_template,
+                container_name,
+            ],
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        state = completed.stdout.strip()
+        passed = completed.returncode == 0 and state in {"healthy", "running"}
+        return {
+            "name": "container_status",
+            "target": container_name,
+            "status": "passed" if passed else "failed",
+            "returncode": completed.returncode,
+            "stdout": state,
+            "stderr": completed.stderr,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+    return await asyncio.to_thread(_run)
+
+
 async def run_verification(
     task_id: str,
     repo_path: Optional[str] = None,
     commands: Optional[List[str]] = None,
+    health_url: Optional[str] = None,
+    container_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run verification commands (tests, linters) and persist results."""
     commands = commands or [
@@ -139,7 +257,19 @@ async def run_verification(
                 degraded = True
             results.append(res)
 
-        failed = any(r.get("returncode") not in (0, None) for r in results)
+        health_result = await _run_health_check(health_url)
+        container_result = await _run_container_check(container_name)
+        results.extend([health_result, container_result])
+        if health_result.get("status") == "degraded":
+            degraded = True
+        if container_result.get("status") == "degraded":
+            degraded = True
+
+        failed = any(
+            r.get("returncode") not in (0, None)
+            or r.get("status") == "failed"
+            for r in results
+        )
         status = "failed" if failed else "passed"
         if degraded and status == "passed":
             status = "degraded_passed"

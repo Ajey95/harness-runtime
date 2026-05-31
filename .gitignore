@@ -6,6 +6,7 @@ venv/
 *.pyc
 frontend/node_modules/
 frontend/.next/
+.next/
 # Local runtime DB (should not be committed)
 runtime.db
 

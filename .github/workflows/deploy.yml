@@ -14,7 +14,15 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "20"
+
+      - name: Build frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_HR_API: ${{ secrets.NEXT_PUBLIC_HR_API }}
+        run: |
+          npm ci
+          npm run build
 
       - name: Deploy frontend to Vercel
         uses: amondnet/vercel-action@v20
@@ -23,6 +31,8 @@ jobs:
           vercel-args: --prod
           working-directory: frontend
           scope: ${{ secrets.VERCEL_SCOPE }}
+        env:
+          NEXT_PUBLIC_HR_API: ${{ secrets.NEXT_PUBLIC_HR_API }}
 
       - name: Trigger Render backend deployment
         env:

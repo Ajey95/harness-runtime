@@ -3,7 +3,6 @@ import shlex
 import shutil
 import subprocess
 import tempfile
-import os
 from pathlib import Path
 from typing import Dict, Any, Optional, Sequence, List
 
@@ -92,7 +91,7 @@ class CodexAdapter:
         }
 
     async def propose_patch(self, description: str) -> Dict[str, Any]:
-        # Prefer using the installed `codex` CLI to generate a patch if available.
+        # Prefer the installed `codex` CLI when it can produce a diff.
         await asyncio.sleep(0.05)
         codex_bin = shutil.which("codex")
         if codex_bin:
@@ -101,7 +100,14 @@ class CodexAdapter:
                 # flags may vary by codex CLI versions; this is a best-effort
                 # attempt and falls back to the built-in proposal.
                 proc = subprocess.run(
-                    [codex_bin, "propose", "--format", "diff", "--prompt", description],
+                    [
+                        codex_bin,
+                        "propose",
+                        "--format",
+                        "diff",
+                        "--prompt",
+                        description,
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=30,
@@ -113,15 +119,21 @@ class CodexAdapter:
                 # ignore and fall back
                 pass
 
-        # Fallback simulated patch
+        # Deterministic fallback used for the MVP incident workflow.
         patch_text = (
-            "--- a/file.txt\n"
-            "+++ b/file.txt\n"
-            "@@ -1 +1 @@\n"
-            "-Hello\n"
-            "+Hello, fixed\n"
+            "--- a/demo/incident_service_config.txt\n"
+            "+++ b/demo/incident_service_config.txt\n"
+            "@@ -1,3 +1,3 @@\n"
+            " service=api\n"
+            "-status=broken\n"
+            "+status=healthy\n"
+            "-health_check=503\n"
+            "+health_check=200\n"
         )
-        return {"patch": patch_text}
+        return {
+            "patch": patch_text,
+            "summary": "repair demo service health config in sandbox",
+        }
 
     async def run_command(
         self,
@@ -208,13 +220,13 @@ class CodexAdapter:
 
         Strategy:
         - Validate `cwd` is inside the sandbox.
-        - Create a temporary clone of the repository at `cwd`.
+        - Create a temporary sandbox copy of the repository at `cwd`.
         - Run `git apply --check -` to validate the patch.
         - If check passes, run `git apply -` then commit the change in the
           temporary clone and return the commit id and output.
 
         The original working tree is never modified; callers can inspect the
-        patch result and choose whether to pull the commit into the real repo.
+        sandbox result and choose whether to promote it.
         """
         # Expect patch to be a dict with key 'patch' holding unified diff text
         patch_text = None
@@ -236,40 +248,85 @@ class CodexAdapter:
 
         tmpdir = tempfile.mkdtemp(prefix="codex_apply_")
         try:
-            # Clone the repo into the tempdir (local clone is fast)
-            clone_cmd = [git_bin, "clone", "--depth", "1", str(safe_repo), tmpdir]
-            c = subprocess.run(clone_cmd, capture_output=True, text=True)
-            if c.returncode != 0:
-                return {"ok": False, "error": "git clone failed", "stderr": c.stderr}
+            ignore = shutil.ignore_patterns(
+                ".git",
+                ".next",
+                "node_modules",
+                ".venv",
+                "__pycache__",
+                ".pytest_cache",
+            )
+            shutil.copytree(
+                safe_repo,
+                tmpdir,
+                dirs_exist_ok=True,
+                ignore=ignore,
+            )
 
             # Validate patch via git apply --check
-            proc_check = subprocess.run([git_bin, "apply", "--check", "-"], input=patch_text, cwd=tmpdir, capture_output=True, text=True)
+            proc_check = subprocess.run(
+                [git_bin, "apply", "--ignore-whitespace", "--check", "-"],
+                input=patch_text,
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
             if proc_check.returncode != 0:
-                return {"ok": False, "error": "patch check failed", "stderr": proc_check.stderr}
+                return {
+                    "ok": False,
+                    "error": "patch check failed",
+                    "stderr": proc_check.stderr,
+                }
 
             # Apply the patch
-            proc_apply = subprocess.run([git_bin, "apply", "-"], input=patch_text, cwd=tmpdir, capture_output=True, text=True)
+            proc_apply = subprocess.run(
+                [git_bin, "apply", "--ignore-whitespace", "-"],
+                input=patch_text,
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+            )
             if proc_apply.returncode != 0:
-                return {"ok": False, "error": "patch apply failed", "stderr": proc_apply.stderr}
+                return {
+                    "ok": False,
+                    "error": "patch apply failed",
+                    "stderr": proc_apply.stderr,
+                }
 
-            # Commit the changes
-            subprocess.run([git_bin, "add", "-A"], cwd=tmpdir, check=False)
-            commit_msg = "codex: apply patch"
-            proc_commit = subprocess.run([git_bin, "commit", "-m", commit_msg], cwd=tmpdir, capture_output=True, text=True)
             commit_id = None
-            if proc_commit.returncode == 0:
-                # lookup commit id
-                proc_rev = subprocess.run([git_bin, "rev-parse", "HEAD"], cwd=tmpdir, capture_output=True, text=True)
+            commit_stdout = ""
+            commit_stderr = ""
+            if (Path(tmpdir) / ".git").exists():
+                subprocess.run([git_bin, "add", "-A"], cwd=tmpdir, check=False)
+                commit_msg = "codex: apply patch"
+                proc_commit = subprocess.run(
+                    [git_bin, "commit", "-m", commit_msg],
+                    cwd=tmpdir,
+                    capture_output=True,
+                    text=True,
+                )
+                commit_stdout = proc_commit.stdout
+                commit_stderr = proc_commit.stderr
+                proc_rev = subprocess.run(
+                    [git_bin, "rev-parse", "HEAD"],
+                    cwd=tmpdir,
+                    capture_output=True,
+                    text=True,
+                )
                 if proc_rev.returncode == 0:
                     commit_id = proc_rev.stdout.strip()
 
             return {
                 "ok": True,
+                "cmd": "git apply --check - && git apply -",
+                "returncode": proc_apply.returncode,
                 "commit_id": commit_id,
+                "stdout": proc_apply.stdout,
+                "stderr": proc_apply.stderr or commit_stderr,
                 "apply_stdout": proc_apply.stdout,
                 "apply_stderr": proc_apply.stderr,
-                "commit_stdout": proc_commit.stdout,
-                "commit_stderr": proc_commit.stderr,
+                "commit_stdout": commit_stdout,
+                "commit_stderr": commit_stderr,
                 "workdir": tmpdir,
             }
         except Exception as e:

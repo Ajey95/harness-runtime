@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import ReactFlow, { MiniMap, Controls, Background } from 'reactflow'
 import 'reactflow/dist/style.css'
 
-const API = 'http://localhost:8000'
-const REFRESH_MS = 5000
+const API = process.env.NEXT_PUBLIC_HR_API || 'http://localhost:8000'
+const REFRESH_MS = 1500
 
 const statusColors = {
   completed: '#166534',
@@ -58,6 +58,7 @@ function shortTaskId(taskId) {
 export default function Home() {
   const [traces, setTraces] = useState([])
   const [approvals, setApprovals] = useState([])
+  const [incidents, setIncidents] = useState([])
   const [reports, setReports] = useState([])
   const [metricsSummary, setMetricsSummary] = useState(null)
   const [metricsByTask, setMetricsByTask] = useState({})
@@ -76,37 +77,59 @@ export default function Home() {
   async function loadDashboardData() {
     try {
       setError('')
-      const [tracesRes, approvalsRes, reportsRes, metricsRes] = await Promise.all([
+      const asCollection = (data) => (Array.isArray(data) ? data : Array.isArray(data?.value) ? data.value : [])
+      const [tracesRes, approvalsRes, reportsRes, metricsRes, incidentsRes] = await Promise.all([
         fetch(`${API}/traces`),
         fetch(`${API}/approvals`),
         fetch(`${API}/reports`),
         fetch(`${API}/metrics`),
+        fetch(`${API}/incidents`),
       ])
-      if (!tracesRes.ok || !approvalsRes.ok || !reportsRes.ok || !metricsRes.ok) {
-        throw new Error('Dashboard fetch failed')
+      const [traceData, approvalsData, reportsData, metricsData, incidentsData] = await Promise.all([
+        tracesRes.ok ? tracesRes.json() : Promise.resolve([]),
+        approvalsRes.ok ? approvalsRes.json() : Promise.resolve([]),
+        reportsRes.ok ? reportsRes.json() : Promise.resolve([]),
+        metricsRes.ok ? metricsRes.json() : Promise.resolve({ summary: null, tasks: [] }),
+        incidentsRes.ok ? incidentsRes.json() : Promise.resolve([]),
+      ])
+      const nextTraces = asCollection(traceData)
+      const nextApprovals = asCollection(approvalsData)
+      const nextReports = asCollection(reportsData)
+      const nextIncidents = asCollection(incidentsData)
+      const tracesByTask = new Map()
+      for (const trace of nextTraces) {
+        const taskId = trace.task_id
+        if (!taskId) continue
+        if (!tracesByTask.has(taskId)) tracesByTask.set(taskId, [])
+        tracesByTask.get(taskId).push(trace)
       }
-      const [traceData, approvalsData, reportsData, metricsData] = await Promise.all([
-        tracesRes.json(),
-        approvalsRes.json(),
-        reportsRes.json(),
-        metricsRes.json(),
-      ])
-      const nextTraces = Array.isArray(traceData) ? traceData : []
-      const nextApprovals = Array.isArray(approvalsData) ? approvalsData : []
-      const nextReports = Array.isArray(reportsData) ? reportsData : []
-      setTraces(nextTraces)
+      const nextTasks = nextReports.length > 0
+        ? nextReports.map((report) => ({
+            task_id: report.task_id,
+            status: report.status,
+            report: report.report,
+            created_at: report.created_at,
+            traces: tracesByTask.get(report.task_id) || [],
+          }))
+        : nextTraces.map((trace) => ({
+            task_id: trace.task_id,
+            status: trace.status,
+            traces: [trace],
+          }))
+      setTraces(nextTasks)
       setApprovals(nextApprovals)
+      setIncidents(nextIncidents)
       setReports(nextReports)
-      setMetricsSummary(metricsData?.summary || null)
+      setMetricsSummary(metricsData?.summary || metricsData?.value?.summary || null)
       const byTask = {}
-      for (const item of metricsData?.tasks || []) {
+      for (const item of metricsData?.tasks || metricsData?.value?.tasks || []) {
         byTask[item.task_id] = item
       }
       setMetricsByTask(byTask)
       setLastUpdated(new Date())
       setSelectedTaskId((prev) => {
-        if (prev && nextTraces.some((t) => t.task_id === prev)) return prev
-        return nextTraces[0]?.task_id || ''
+        if (prev && nextTasks.some((t) => t.task_id === prev)) return prev
+        return nextTasks[0]?.task_id || ''
       })
     } catch (e) {
       setError(e?.message || 'Unable to load dashboard data')
@@ -153,6 +176,21 @@ export default function Home() {
       `${API}/approvals/${taskId}?approved=true&approver=dashboard&note=approved`,
       { method: 'POST' }
     )
+    await loadDashboardData()
+  }
+
+  async function triggerDemoIncident() {
+    const res = await fetch(`${API}/incidents/demo-docker`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ auto_start: true }),
+    })
+    if (!res.ok) {
+      setError('Unable to trigger demo incident')
+      return
+    }
+    const payload = await res.json()
+    setSelectedTaskId(payload.task_id || '')
     await loadDashboardData()
   }
 
@@ -259,7 +297,10 @@ export default function Home() {
             Live refresh every {REFRESH_MS / 1000}s · Last updated: {lastUpdated ? lastUpdated.toLocaleTimeString() : '—'}
           </small>
         </div>
-        <button onClick={loadDashboardData}>Refresh Now</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={triggerDemoIncident}>Trigger Demo Incident</button>
+          <button onClick={loadDashboardData}>Refresh Now</button>
+        </div>
       </header>
 
       {error && <div style={{ ...card, borderColor: '#fca5a5', color: '#b91c1c', marginBottom: 12 }}>{error}</div>}
@@ -387,6 +428,24 @@ export default function Home() {
 
         <aside style={{ display: 'grid', gridTemplateRows: 'auto auto auto auto', gap: 12 }}>
           <div style={card}>
+            <h3 style={{ marginTop: 0 }}>Incident Monitor</h3>
+            {incidents.length === 0 && <div style={{ fontSize: 12 }}>No incidents detected.</div>}
+            {incidents.slice(0, 3).map((incident) => (
+              <div key={incident.incident_id} style={{ borderTop: '1px solid #eef2f7', paddingTop: 8, marginTop: 8 }}>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>
+                  {incident.payload?.title || 'Runtime incident'}
+                </div>
+                <div style={{ fontSize: 12, color: '#334155', marginTop: 2 }}>
+                  Status: {toTitle(incident.status)}
+                </div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                  Task: {shortTaskId(incident.task_id)}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div style={card}>
             <h3 style={{ marginTop: 0 }}>Task Summary</h3>
             {!selectedTask && <p style={{ margin: 0 }}>No task selected.</p>}
             {selectedTask && (
@@ -441,6 +500,7 @@ export default function Home() {
                     )}
                   </div>
                 </div>
+              </div>
             )}
           </div>
 

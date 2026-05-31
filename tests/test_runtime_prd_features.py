@@ -16,6 +16,11 @@ from app.middleware import ApprovalMiddleware  # noqa: E402
 from app import runtime as runtime_module  # noqa: E402
 from app.runtime import ExecutionRuntime  # noqa: E402
 from app.verifier import run_verification  # noqa: E402
+from app.incidents import (  # noqa: E402
+    DEFAULT_CONTAINER_NAME,
+    DEFAULT_HEALTH_URL,
+    build_demo_incident,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -187,3 +192,67 @@ def test_metrics_endpoint_raises_for_missing_task():
     with pytest.raises(HTTPException) as exc:
         asyncio.run(get_metrics("missing-task"))
     assert exc.value.status_code == 404
+
+
+def test_demo_incident_pauses_then_resumes_after_approval(monkeypatch):
+    async def fake_verification(
+        task_id,
+        repo_path=None,
+        health_url=None,
+        container_name=None,
+    ):
+        return {
+            "task_id": task_id,
+            "status": "passed",
+            "results": [
+                {"name": "health_check", "status": "passed"},
+                {"name": "container_status", "status": "passed"},
+            ],
+            "degraded": False,
+        }
+
+    monkeypatch.setattr(runtime_module, "run_verification", fake_verification)
+    incident_id = "incident-demo"
+    task_id = "incident-task"
+    incident = build_demo_incident(repo_path=str(ROOT))
+    db.save_incident(incident_id, incident)
+
+    runtime = ExecutionRuntime()
+    pending = asyncio.run(
+        runtime.start_task(
+            incident["description"],
+            repo_path=incident["repo_path"],
+            task_id=task_id,
+            incident_id=incident_id,
+            health_url=incident["health_url"],
+            container_name=incident["container_name"],
+        )
+    )
+    assert pending.status == "pending_approval"
+
+    db.save_approval(task_id, approved=True, approver="ops")
+    resumed = asyncio.run(runtime.resume_task(task_id))
+    assert resumed.status == "completed"
+    steps = [trace.step for trace in resumed.traces]
+    assert "approval_response" in steps
+    assert "tool_call" in steps
+    assert "verification_result" in steps
+    report = db.get_report(task_id)["report"]
+    assert report["incident_id"] == incident_id
+    assert report["health_url"] == DEFAULT_HEALTH_URL
+    assert report["container_name"] == DEFAULT_CONTAINER_NAME
+
+
+def test_verification_records_synthetic_recovery_checks():
+    result = asyncio.run(
+        run_verification(
+            task_id="synthetic-recovery",
+            repo_path=str(ROOT),
+            commands=["echo not-allowed"],
+            health_url=DEFAULT_HEALTH_URL,
+            container_name=DEFAULT_CONTAINER_NAME,
+        )
+    )
+    assert result["status"] == "degraded_passed"
+    names = {item.get("name") for item in result["results"]}
+    assert {"health_check", "container_status"}.issubset(names)

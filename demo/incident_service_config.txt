@@ -1,0 +1,3 @@
+service=api
+status=broken
+health_check=503

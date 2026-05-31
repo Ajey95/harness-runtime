@@ -7,7 +7,6 @@ layer so the rest of the runtime can connect to a graph-based API.
 """
 from typing import Callable, Dict, List, Any
 import inspect
-import asyncio
 
 
 class LangGraphAdapter:
@@ -15,7 +14,11 @@ class LangGraphAdapter:
         self.nodes: Dict[str, Callable[[Dict[str, Any]], Dict[str, Any]]] = {}
         self.edges: Dict[str, List[str]] = {}
 
-    def add_node(self, name: str, fn: Callable[[Dict[str, Any]], Dict[str, Any]]):
+    def add_node(
+        self,
+        name: str,
+        fn: Callable[[Dict[str, Any]], Dict[str, Any]],
+    ):
         # Node `fn` may be sync or async; store as-is and detect at run-time.
         self.nodes[name] = fn
         self.edges.setdefault(name, [])
@@ -23,7 +26,11 @@ class LangGraphAdapter:
     def add_edge(self, src: str, dst: str):
         self.edges.setdefault(src, []).append(dst)
 
-    async def _maybe_call(self, fn: Callable, ctx: Dict[str, Any]) -> Dict[str, Any]:
+    async def _maybe_call(
+        self,
+        fn: Callable,
+        ctx: Dict[str, Any],
+    ) -> Dict[str, Any]:
         try:
             if inspect.iscoroutinefunction(fn):
                 return await fn(ctx) or ctx
@@ -32,7 +39,12 @@ class LangGraphAdapter:
                 return await res or ctx
             return res or ctx
         except Exception as e:
-            ctx.setdefault("errors", []).append({"node": getattr(fn, "__name__", "<node>"), "error": str(e)})
+            ctx.setdefault("errors", []).append(
+                {
+                    "node": getattr(fn, "__name__", "<node>"),
+                    "error": str(e),
+                }
+            )
             return ctx
 
     async def run(self, start: str, context: Dict[str, Any]) -> Dict[str, Any]:
