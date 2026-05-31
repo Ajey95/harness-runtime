@@ -15,11 +15,12 @@ def test_cors_allows_vercel_frontend():
         for middleware in app.user_middleware
         if middleware.cls.__name__ == "CORSMiddleware"
     )
+    options = getattr(cors, "kwargs", getattr(cors, "options", {}))
     assert (
         "https://frontend-three-ivory-52.vercel.app"
-        in cors.kwargs["allow_origins"]
+        in options["allow_origins"]
     )
-    assert cors.kwargs["allow_origin_regex"] == r"https://.*\.vercel\.app"
+    assert options["allow_origin_regex"] == r"https://.*\.vercel\.app"
 
 
 def test_health_endpoint():
