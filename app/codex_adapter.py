@@ -1,43 +1,77 @@
 import asyncio
+import shlex
+import shutil
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Sequence, List
 
 
 class CodexAdapter:
-    """Adapter for Codex CLI integration (placeholder).
-
-    Provides methods to run analysis, propose patches, and execute
-    commands. The `run_command` method executes shell commands and returns
-    stdout/stderr/returncode.
-    """
+    """Constrained adapter for Codex CLI-style subprocess integration."""
 
     ALLOWED_COMMANDS = {
         "echo Applying patch",
+        "git status --short",
+        "git diff --stat",
+        "codex --version",
     }
     SANDBOX_ROOT = Path(__file__).resolve().parents[1]
 
-    def _validate_cwd(self, cwd: Optional[str]) -> str:
-        if cwd and cwd != str(self.SANDBOX_ROOT):
+    def _validate_cwd(self, cwd: Optional[str]) -> Path:
+        target = Path(cwd or str(self.SANDBOX_ROOT)).resolve()
+        sandbox = self.SANDBOX_ROOT.resolve()
+        if target != sandbox and sandbox not in target.parents:
             raise ValueError(
                 "path '{}' outside sandbox root '{}'".format(
-                    cwd,
-                    self.SANDBOX_ROOT,
+                    target,
+                    sandbox,
                 )
             )
-        return str(self.SANDBOX_ROOT)
+        return target
+
+    @staticmethod
+    def _normalize_parts(parts: Sequence[str]) -> List[str]:
+        return [p for p in parts if p]
+
+    def _validate_command(self, cmd: str) -> Sequence[str]:
+        parts = self._normalize_parts(shlex.split(cmd))
+        normalized = " ".join(parts)
+        if normalized not in self.ALLOWED_COMMANDS:
+            raise ValueError("command not allowlisted")
+        binary = parts[0] if parts else ""
+        if not binary or shutil.which(binary) is None:
+            raise ValueError("allowlisted command binary not available")
+        return parts
 
     async def run_analysis(
         self,
         repo_path: str,
         description: str,
     ) -> Dict[str, Any]:
-        await asyncio.sleep(0.05)
-        msg = (
-            f"Simulated analysis of {repo_path or 'local'} for: "
-            f"{description}"
-        )
-        return {"analysis": msg}
+        await asyncio.sleep(0.01)
+        safe_cwd = self._validate_cwd(repo_path)
+        signals = []
+        for cmd in ("git status --short", "git diff --stat"):
+            result = await self.run_command(cmd, cwd=str(safe_cwd), timeout=15)
+            signals.append(result)
+
+        codex_available = shutil.which("codex") is not None
+        codex_probe = None
+        if codex_available:
+            codex_probe = await self.run_command(
+                "codex --version",
+                cwd=str(safe_cwd),
+                timeout=15,
+            )
+
+        return {
+            "repo_path": str(safe_cwd),
+            "description": description,
+            "signals": signals,
+            "codex_available": codex_available,
+            "codex_probe": codex_probe,
+            "degraded_mode": not codex_available,
+        }
 
     async def propose_patch(self, description: str) -> Dict[str, Any]:
         await asyncio.sleep(0.05)
@@ -56,15 +90,17 @@ class CodexAdapter:
         cwd: Optional[str] = None,
         timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
-        if cmd not in self.ALLOWED_COMMANDS:
+        try:
+            argv = self._validate_command(cmd)
+        except ValueError as exc:
             return {
                 "cmd": cmd,
                 "returncode": None,
                 "stdout": "",
-                "stderr": "command not allowlisted",
+                "stderr": str(exc),
             }
         try:
-            safe_cwd = self._validate_cwd(cwd)
+            safe_cwd = str(self._validate_cwd(cwd))
         except ValueError as exc:
             return {
                 "cmd": cmd,
@@ -76,8 +112,8 @@ class CodexAdapter:
         def run_sync():
             try:
                 completed = subprocess.run(
-                    cmd,
-                    shell=True,
+                    argv,
+                    shell=False,
                     cwd=safe_cwd,
                     capture_output=True,
                     text=True,
@@ -86,6 +122,7 @@ class CodexAdapter:
 
                 return {
                     "cmd": cmd,
+                    "argv": list(argv),
                     "returncode": completed.returncode,
                     "stdout": completed.stdout,
                     "stderr": completed.stderr,

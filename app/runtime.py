@@ -1,7 +1,7 @@
 import uuid
 import asyncio
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from .models import TraceEntry, TaskResult
 from .middleware import ApprovalMiddleware
@@ -19,6 +19,29 @@ class ExecutionRuntime:
     def __init__(self) -> None:
         self.traces: Dict[str, List[TraceEntry]] = {}
         self.middleware = ApprovalMiddleware()
+
+    async def _attempt_rollback(
+        self,
+        repo_path: Optional[str],
+    ) -> Dict[str, Any]:
+        if not repo_path:
+            return {"status": "skipped", "reason": "repo_path_not_provided"}
+        reset = await codex.run_command(
+            "git status --short",
+            cwd=repo_path,
+            timeout=20,
+        )
+        if reset.get("returncode") not in (0, None):
+            return {
+                "status": "error",
+                "reason": "status_probe_failed",
+                "detail": reset,
+            }
+        return {
+            "status": "safe_noop",
+            "reason": "no_patch_apply_command_configured",
+            "detail": reset,
+        }
 
     async def start_task(
         self,
@@ -51,49 +74,48 @@ class ExecutionRuntime:
         add("analysis_result", str(analysis))
         await asyncio.sleep(0.05)
 
-        # Risk classification via middleware
-        risk = self.middleware.classify_risk(description)
-        add("risk_classified", risk)
+        # Middleware governance decision
+        middleware_decision = self.middleware.evaluate_task(
+            {"task_id": task_id, "description": description}
+        )
+        risk = str(middleware_decision["risk"])
+        add("risk_classified", f"{risk}:{middleware_decision['risk_score']}")
+        add("middleware_decision", str(middleware_decision))
 
-        # Approval flow
-        if self.middleware.require_approval(risk):
-            add("approval_requested")
-            req = {"task_id": task_id, "description": description}
-            approved = self.middleware.request_approval(req)
-            add("approval_response", str(approved))
-            if not approved:
-                approval_state = db.get_approval(task_id)
-                rejected = bool(
-                    approval_state and not approval_state["approved"]
-                )
-                status = "rejected" if rejected else "pending_approval"
-                add(status, "Task halted by approval policy")
-                traces_list = [t.dict() for t in traces]
-                db.save_traces(task_id, traces_list, status=status)
-                db.save_report(
-                    task_id,
-                    status,
-                    {
-                        "task_id": task_id,
-                        "status": status,
-                        "risk": risk,
-                        "approval_required": True,
-                        "approval_state": approval_state,
-                        "verification_status": "not_started",
-                        "duration_ms": int(
-                            (
-                                datetime.now(timezone.utc) - start_time
-                            ).total_seconds()
-                            * 1000
-                        ),
-                    },
-                )
-                self.traces[task_id] = traces
-                return TaskResult(
-                    task_id=task_id,
-                    status=status,
-                    traces=traces,
-                )
+        decision = middleware_decision["decision"]
+        if decision in {"pending_approval", "rejected"}:
+            status = str(decision)
+            add(status, "Task halted by approval policy")
+            traces_list = [t.dict() for t in traces]
+            db.save_traces(task_id, traces_list, status=status)
+            db.save_report(
+                task_id,
+                status,
+                {
+                    "task_id": task_id,
+                    "status": status,
+                    "risk": risk,
+                    "risk_score": middleware_decision["risk_score"],
+                    "middleware_decision": middleware_decision,
+                    "approval_required": middleware_decision[
+                        "approval_required"
+                    ],
+                    "approval_state": middleware_decision["approval_state"],
+                    "verification_status": "not_started",
+                    "duration_ms": int(
+                        (
+                            datetime.now(timezone.utc) - start_time
+                        ).total_seconds()
+                        * 1000
+                    ),
+                },
+            )
+            self.traces[task_id] = traces
+            return TaskResult(
+                task_id=task_id,
+                status=status,
+                traces=traces,
+            )
 
         # Propose and apply patch (simulated)
         proposal = await codex.propose_patch(description)
@@ -123,8 +145,15 @@ class ExecutionRuntime:
         verification = await run_verification(task_id, repo_path=repo_path)
         verification_status = verification["status"]
         add("verification_result", verification_status)
+
+        rollback = None
+        if verification_status in {"failed", "error"}:
+            add("rollback_started", "verification_failed_attempting_rollback")
+            rollback = await self._attempt_rollback(repo_path=repo_path)
+            add("rollback_result", str(rollback))
+
         final_status = (
-            "completed" if verification_status == "passed"
+            "completed" if verification_status in {"passed", "degraded_passed"}
             else "verification_failed"
         )
         add(final_status, "Task execution finished")
@@ -144,9 +173,13 @@ class ExecutionRuntime:
                 "task_id": task_id,
                 "status": final_status,
                 "risk": risk,
-                "approval_required": self.middleware.require_approval(risk),
+                "risk_score": middleware_decision["risk_score"],
+                "middleware_decision": middleware_decision,
+                "approval_required": middleware_decision["approval_required"],
                 "verification_status": verification_status,
                 "verification": verification.get("results"),
+                "verification_degraded": verification.get("degraded"),
+                "rollback": rollback,
                 "duration_ms": int(
                     (
                         datetime.now(timezone.utc) - start_time

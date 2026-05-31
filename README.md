@@ -60,11 +60,11 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/verify/<task_id> -Method GET
 
 - **Execution Runtime**: orchestrates tasks, records trace entries across phases (analysis, propose, apply, verify).
 - **Middleware**: keyword-based risk classification and approval-gated execution for medium/high-risk tasks.
-- **Codex Adapter**: placeholder adapter that simulates analysis and records tool-call outputs. Designed to be replaced with real Codex CLI subprocess integration.
-- **Verification Runner**: executes allowlisted checks (`pytest -q`, `flake8 app tests`) with timeouts and persists results to `runtime.db`.
-- **Execution Reports**: each task writes a final report with risk, approval state, verification status, and runtime duration.
+- **Codex Adapter**: constrained subprocess adapter with explicit command allowlist, sandbox-path enforcement, and degraded-mode signaling when Codex CLI is unavailable.
+- **Verification Runner**: executes allowlisted checks (`pytest -q`, `flake8 app tests`) with retries, strict command validation, and persisted status metadata.
+- **Execution Reports**: each task writes a lifecycle report with middleware decision metadata, verification summary, rollback attempt details, and runtime duration.
 - **Observability**: traces and verifications are persisted to SQLite (`runtime.db`) and can be queried via HTTP.
-- **Dashboard**: a minimal Next.js scaffold and a simple static HTML dashboard in `dashboard/`.
+- **Dashboard**: Next.js runtime dashboard with task list, reasoning lifecycle graph, middleware/approval visibility, and timeline filtering.
 - **CI**: GitHub Actions workflow runs lint and tests.
 
 ## Security notes and limitations
@@ -88,11 +88,20 @@ gh repo create <your-username>/harness-runtime --public --source=. --remote=orig
 
 When the repository is public, the presentation file `presentation/slide_deck.html` will be accessible via the repository file URL and can be shared broadly.
 
-## Next recommended steps
+## PRD coverage snapshot (MVP)
 
-- Replace simulated Codex adapter with audited subprocess wrapper and tool-call capture.
-- Implement dashboard UI and host it (Next.js) or serve static files via FastAPI.
-- Add sandboxed verification (Docker-based) for safer execution.
+- Implemented now:
+  - Codex task orchestration flow with governance checkpoints
+  - tool-call capture in execution traces
+  - policy-driven risk + approval middleware decisions
+  - allowlisted verification execution with persisted outcomes
+  - execution reports and observability endpoints
+  - dashboard drill-down for reasoning timeline and middleware states
+- Still explicitly deferred (matches PRD deferred scope):
+  - Kubernetes/distributed runtime
+  - multi-agent orchestration
+  - RL/advanced autonomy optimization
+  - enterprise multi-tenancy/RBAC hardening
 
 ## Contact / Credits
 
