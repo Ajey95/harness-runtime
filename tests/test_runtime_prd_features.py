@@ -69,7 +69,10 @@ def test_runtime_pauses_when_approval_missing():
     assert report is not None
     assert report["report"]["approval_required"] is True
     assert report["report"]["verification_status"] == "not_started"
-    assert report["report"]["middleware_decision"]["decision"] == "pending_approval"
+    assert (
+        report["report"]["middleware_decision"]["decision"]
+        == "pending_approval"
+    )
 
 
 def test_runtime_rejects_when_explicitly_denied():
@@ -113,7 +116,12 @@ def test_verifier_reports_degraded_on_non_allowlisted_command():
 
 def test_runtime_report_includes_rollback_and_verification(monkeypatch):
     async def fake_verification(task_id, repo_path=None):
-        return {"task_id": task_id, "status": "failed", "results": [], "degraded": False}
+        return {
+            "task_id": task_id,
+            "status": "failed",
+            "results": [],
+            "degraded": False,
+        }
 
     monkeypatch.setattr(runtime_module, "run_verification", fake_verification)
     runtime = ExecutionRuntime()

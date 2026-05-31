@@ -39,7 +39,9 @@ class ApprovalMiddleware:
         medium_hits = sum(
             1 for token in self.medium_risk_keywords if token in text
         )
-        high_hits = sum(1 for token in self.high_risk_keywords if token in text)
+        high_hits = sum(
+            1 for token in self.high_risk_keywords if token in text
+        )
         return medium_hits + (high_hits * 2)
 
     def classify_risk(self, task: Any) -> str:

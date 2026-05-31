@@ -144,7 +144,11 @@ async def run_verification(
         status = "error"
         results.append({"error": str(e)})
 
-    db.save_verification(task_id, status, {"results": results, "degraded": degraded})
+    db.save_verification(
+        task_id,
+        status,
+        {"results": results, "degraded": degraded},
+    )
     return {
         "task_id": task_id,
         "status": status,
