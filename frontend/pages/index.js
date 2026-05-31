@@ -57,6 +57,8 @@ export default function Home() {
   const [traces, setTraces] = useState([])
   const [approvals, setApprovals] = useState([])
   const [reports, setReports] = useState([])
+  const [metricsSummary, setMetricsSummary] = useState(null)
+  const [metricsByTask, setMetricsByTask] = useState({})
   const [verificationByTask, setVerificationByTask] = useState({})
   const [selectedTaskId, setSelectedTaskId] = useState('')
   const [lastUpdated, setLastUpdated] = useState(null)
@@ -72,18 +74,20 @@ export default function Home() {
   async function loadDashboardData() {
     try {
       setError('')
-      const [tracesRes, approvalsRes, reportsRes] = await Promise.all([
+      const [tracesRes, approvalsRes, reportsRes, metricsRes] = await Promise.all([
         fetch(`${API}/traces`),
         fetch(`${API}/approvals`),
         fetch(`${API}/reports`),
+        fetch(`${API}/metrics`),
       ])
-      if (!tracesRes.ok || !approvalsRes.ok || !reportsRes.ok) {
+      if (!tracesRes.ok || !approvalsRes.ok || !reportsRes.ok || !metricsRes.ok) {
         throw new Error('Dashboard fetch failed')
       }
-      const [traceData, approvalsData, reportsData] = await Promise.all([
+      const [traceData, approvalsData, reportsData, metricsData] = await Promise.all([
         tracesRes.json(),
         approvalsRes.json(),
         reportsRes.json(),
+        metricsRes.json(),
       ])
       const nextTraces = Array.isArray(traceData) ? traceData : []
       const nextApprovals = Array.isArray(approvalsData) ? approvalsData : []
@@ -91,6 +95,12 @@ export default function Home() {
       setTraces(nextTraces)
       setApprovals(nextApprovals)
       setReports(nextReports)
+      setMetricsSummary(metricsData?.summary || null)
+      const byTask = {}
+      for (const item of metricsData?.tasks || []) {
+        byTask[item.task_id] = item
+      }
+      setMetricsByTask(byTask)
       setLastUpdated(new Date())
       setSelectedTaskId((prev) => {
         if (prev && nextTraces.some((t) => t.task_id === prev)) return prev
@@ -157,20 +167,31 @@ export default function Home() {
     [approvals, selectedTaskId]
   )
   const selectedVerification = verificationByTask[selectedTaskId] || null
+  const selectedTaskMetrics = metricsByTask[selectedTaskId] || null
 
   const kpis = useMemo(() => {
-    const active = traces.filter((t) => ['running', 'pending_approval'].includes(t.status)).length
-    const completed = traces.filter((t) => t.status === 'completed').length
-    const verificationFailed = traces.filter((t) => t.status === 'verification_failed').length
-    const pendingApprovals = traces.filter((t) => t.status === 'pending_approval').length
+    const active = metricsSummary
+      ? (metricsSummary.status_counts?.running || 0) + (metricsSummary.pending_approvals || 0)
+      : traces.filter((t) => ['running', 'pending_approval'].includes(t.status)).length
+    const completed = metricsSummary
+      ? (metricsSummary.status_counts?.completed || 0)
+      : traces.filter((t) => t.status === 'completed').length
+    const verificationFailed = metricsSummary
+      ? (metricsSummary.verification_failed || 0)
+      : traces.filter((t) => t.status === 'verification_failed').length
+    const pendingApprovals = metricsSummary
+      ? (metricsSummary.pending_approvals || 0)
+      : traces.filter((t) => t.status === 'pending_approval').length
+    const degraded = metricsSummary ? (metricsSummary.degraded_tasks || 0) : 0
     return [
-      { label: 'Total Tasks', value: traces.length },
+      { label: 'Total Tasks', value: metricsSummary?.total_tasks ?? traces.length },
       { label: 'Active', value: active },
       { label: 'Completed', value: completed },
       { label: 'Verification Failed', value: verificationFailed },
       { label: 'Pending Approvals', value: pendingApprovals },
+      { label: 'Degraded Tasks', value: degraded },
     ]
-  }, [traces])
+  }, [traces, metricsSummary])
 
   const timeline = useMemo(() => {
     const items = selectedTask?.traces || []
@@ -213,7 +234,7 @@ export default function Home() {
       {error && <div style={{ ...card, borderColor: '#fca5a5', color: '#b91c1c', marginBottom: 12 }}>{error}</div>}
       {loading && <div style={{ ...card, marginBottom: 12 }}>Loading dashboard...</div>}
 
-      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(120px, 1fr))', gap: 8, marginBottom: 12 }}>
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(6, minmax(120px, 1fr))', gap: 8, marginBottom: 12 }}>
         {kpis.map((k) => (
           <div key={k.label} style={card}>
             <div style={{ fontSize: 12, color: '#64748b' }}>{k.label}</div>
@@ -333,7 +354,7 @@ export default function Home() {
           </div>
         </section>
 
-        <aside style={{ display: 'grid', gridTemplateRows: 'auto auto auto', gap: 12 }}>
+        <aside style={{ display: 'grid', gridTemplateRows: 'auto auto auto auto', gap: 12 }}>
           <div style={card}>
             <h3 style={{ marginTop: 0 }}>Task Summary</h3>
             {!selectedTask && <p style={{ margin: 0 }}>No task selected.</p>}
@@ -363,6 +384,30 @@ export default function Home() {
             <div style={{ fontSize: 12, marginBottom: 4 }}>
               Duration: <strong>{selectedReport?.duration_ms != null ? `${selectedReport.duration_ms} ms` : 'unknown'}</strong>
             </div>
+            <div style={{ fontSize: 12, marginBottom: 4 }}>
+              Avg Runtime: <strong>{metricsSummary?.average_duration_ms != null ? `${metricsSummary.average_duration_ms} ms` : 'unknown'}</strong>
+            </div>
+          </div>
+
+          <div style={card}>
+            <h3 style={{ marginTop: 0 }}>Lifecycle Health</h3>
+            {!selectedTaskMetrics && <div style={{ fontSize: 12 }}>No metrics for selected task</div>}
+            {selectedTaskMetrics && (
+              <>
+                <div style={{ fontSize: 12, marginBottom: 4 }}>
+                  Trace Runtime: <strong>{selectedTaskMetrics.metrics?.trace_runtime_ms != null ? `${selectedTaskMetrics.metrics.trace_runtime_ms} ms` : 'unknown'}</strong>
+                </div>
+                <div style={{ fontSize: 12, marginBottom: 4 }}>
+                  Events: <strong>{selectedTaskMetrics.metrics?.event_count ?? 0}</strong>
+                </div>
+                <div style={{ fontSize: 12, marginBottom: 4 }}>
+                  Stage Mix: <strong>{JSON.stringify(selectedTaskMetrics.metrics?.stage_counts || {})}</strong>
+                </div>
+                <div style={{ fontSize: 12 }}>
+                  Degraded Signals: <strong>{selectedTaskMetrics.metrics?.degraded_signal_count ?? 0}</strong>
+                </div>
+              </>
+            )}
           </div>
 
           <div style={card}>

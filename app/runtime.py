@@ -20,6 +20,34 @@ class ExecutionRuntime:
         self.traces: Dict[str, List[TraceEntry]] = {}
         self.middleware = ApprovalMiddleware()
 
+    @staticmethod
+    def _trace_stage_summary(traces: List[TraceEntry]) -> Dict[str, Any]:
+        stage_counts = {
+            "reasoning": 0,
+            "middleware": 0,
+            "tool_call": 0,
+            "verification": 0,
+        }
+        for trace in traces:
+            step = str(trace.step)
+            if "verification" in step:
+                stage_counts["verification"] += 1
+            elif "approval" in step or "risk" in step or "middleware" in step:
+                stage_counts["middleware"] += 1
+            elif (
+                "tool_call" in step
+                or "propose_patch" in step
+                or "apply_patch" in step
+                or "rollback" in step
+            ):
+                stage_counts["tool_call"] += 1
+            else:
+                stage_counts["reasoning"] += 1
+        return {
+            "event_count": len(traces),
+            "stage_counts": stage_counts,
+        }
+
     async def _attempt_rollback(
         self,
         repo_path: Optional[str],
@@ -87,6 +115,7 @@ class ExecutionRuntime:
             status = str(decision)
             add(status, "Task halted by approval policy")
             traces_list = [t.dict() for t in traces]
+            stage_summary = self._trace_stage_summary(traces)
             db.save_traces(task_id, traces_list, status=status)
             db.save_report(
                 task_id,
@@ -102,6 +131,7 @@ class ExecutionRuntime:
                     ],
                     "approval_state": middleware_decision["approval_state"],
                     "verification_status": "not_started",
+                    "stage_metrics": stage_summary,
                     "duration_ms": int(
                         (
                             datetime.now(timezone.utc) - start_time
@@ -165,6 +195,7 @@ class ExecutionRuntime:
         self.traces[task_id] = traces
         # persist traces
         traces_list = [t.dict() for t in traces]
+        stage_summary = self._trace_stage_summary(traces)
         db.save_traces(task_id, traces_list, status=final_status)
         db.save_report(
             task_id,
@@ -180,6 +211,7 @@ class ExecutionRuntime:
                 "verification": verification.get("results"),
                 "verification_degraded": verification.get("degraded"),
                 "rollback": rollback,
+                "stage_metrics": stage_summary,
                 "duration_ms": int(
                     (
                         datetime.now(timezone.utc) - start_time

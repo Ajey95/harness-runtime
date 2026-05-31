@@ -105,3 +105,16 @@ async def get_report(task_id: str):
     if not report:
         raise HTTPException(status_code=404, detail="report not found")
     return report
+
+
+@app.get("/metrics")
+async def list_metrics():
+    return db.get_metrics()
+
+
+@app.get("/metrics/{task_id}")
+async def get_metrics(task_id: str):
+    metrics = db.get_metrics(task_id=task_id)
+    if not metrics:
+        raise HTTPException(status_code=404, detail="metrics not found")
+    return metrics

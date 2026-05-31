@@ -1,0 +1,54 @@
+{
+  "requirements": [
+    {
+      "id": "FR-1",
+      "requirement": "System SHALL trigger Codex CLI tasks",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr1_triggers_task_runtime"
+    },
+    {
+      "id": "FR-2",
+      "requirement": "System SHALL capture tool calls",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr2_captures_tool_call_trace"
+    },
+    {
+      "id": "FR-3",
+      "requirement": "System SHALL trace execution workflows",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr3_records_execution_workflow_trace"
+    },
+    {
+      "id": "FR-4",
+      "requirement": "System SHALL classify execution risk",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr4_classifies_execution_risk"
+    },
+    {
+      "id": "FR-5",
+      "requirement": "Medium-risk actions SHALL require approval",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr5_requires_approval_for_medium_risk"
+    },
+    {
+      "id": "FR-6",
+      "requirement": "System SHALL verify generated changes",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr6_runs_verification_pipeline"
+    },
+    {
+      "id": "FR-7",
+      "requirement": "System SHALL visualize reasoning traces",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr7_exposes_reasoning_trace_api"
+    },
+    {
+      "id": "FR-8",
+      "requirement": "System SHALL generate execution reports",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr8_persists_execution_report"
+    },
+    {
+      "id": "FR-9",
+      "requirement": "System SHALL support sandbox execution",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr9_enforces_sandbox_execution"
+    },
+    {
+      "id": "FR-10",
+      "requirement": "System SHALL monitor remediation workflows",
+      "automated_check": "tests/test_acceptance_matrix.py::test_fr10_exposes_monitoring_metrics"
+    }
+  ]
+}

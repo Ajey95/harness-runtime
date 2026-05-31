@@ -26,3 +26,6 @@ jobs:
       - name: Run tests
         run: |
           pytest -q
+      - name: Run acceptance matrix gate (FR-1..FR-10)
+        run: |
+          pytest -q tests/test_acceptance_matrix.py

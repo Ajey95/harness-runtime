@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from app import db  # noqa: E402
 from app.codex_adapter import adapter  # noqa: E402
-from app.main import get_report  # noqa: E402
+from app.main import get_report, get_metrics, list_metrics  # noqa: E402
 from app.middleware import ApprovalMiddleware  # noqa: E402
 from app import runtime as runtime_module  # noqa: E402
 from app.runtime import ExecutionRuntime  # noqa: E402
@@ -157,4 +157,33 @@ def test_reports_endpoint_returns_report():
 def test_reports_endpoint_raises_for_missing_report():
     with pytest.raises(HTTPException) as exc:
         asyncio.run(get_report("missing-task"))
+    assert exc.value.status_code == 404
+
+
+def test_metrics_endpoints_return_summary_and_task_data():
+    db.save_traces(
+        "task-metrics",
+        [{"timestamp": "2026-01-01T00:00:00+00:00", "step": "task_started"}],
+        status="completed",
+    )
+    db.save_report(
+        "task-metrics",
+        "completed",
+        {
+            "status": "completed",
+            "risk": "low",
+            "duration_ms": 10,
+            "verification_status": "passed",
+        },
+    )
+    all_metrics = asyncio.run(list_metrics())
+    assert all_metrics["summary"]["total_tasks"] == 1
+    assert all_metrics["summary"]["status_counts"]["completed"] == 1
+    one_metrics = asyncio.run(get_metrics("task-metrics"))
+    assert one_metrics["tasks"][0]["task_id"] == "task-metrics"
+
+
+def test_metrics_endpoint_raises_for_missing_task():
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(get_metrics("missing-task"))
     assert exc.value.status_code == 404

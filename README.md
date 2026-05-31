@@ -55,6 +55,8 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/verify/<task_id> -Method GET
 - `GET /approvals` — list approvals
 - `GET /reports` — list execution reports
 - `GET /reports/{task_id}` — get one execution report
+- `GET /metrics` — aggregated live observability metrics across tasks
+- `GET /metrics/{task_id}` — task-level lifecycle and stage metrics
 
 ## Architecture and features
 
@@ -63,9 +65,9 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/verify/<task_id> -Method GET
 - **Codex Adapter**: constrained subprocess adapter with explicit command allowlist, sandbox-path enforcement, and degraded-mode signaling when Codex CLI is unavailable.
 - **Verification Runner**: executes allowlisted checks (`pytest -q`, `flake8 app tests`) with retries, strict command validation, and persisted status metadata.
 - **Execution Reports**: each task writes a lifecycle report with middleware decision metadata, verification summary, rollback attempt details, and runtime duration.
-- **Observability**: traces and verifications are persisted to SQLite (`runtime.db`) and can be queried via HTTP.
+- **Observability**: traces, verification, reports, and stage-level metrics are persisted/derived from SQLite (`runtime.db`) and can be queried via HTTP.
 - **Dashboard**: Next.js runtime dashboard with task list, reasoning lifecycle graph, middleware/approval visibility, and timeline filtering.
-- **CI**: GitHub Actions workflow runs lint and tests.
+- **CI**: GitHub Actions workflow runs lint, full tests, and a dedicated PRD acceptance matrix gate (`tests/test_acceptance_matrix.py`).
 
 ## Security notes and limitations
 
@@ -96,6 +98,8 @@ When the repository is public, the presentation file `presentation/slide_deck.ht
   - policy-driven risk + approval middleware decisions
   - allowlisted verification execution with persisted outcomes
   - execution reports and observability endpoints
+  - live metrics pipeline (`/metrics`) for status, latency, stage transitions, and degraded-mode tracking
+  - explicit FR-1..FR-10 acceptance matrix (`acceptance_matrix.json`) with CI-gated automated checks
   - dashboard drill-down for reasoning timeline and middleware states
 - Still explicitly deferred (matches PRD deferred scope):
   - Kubernetes/distributed runtime
