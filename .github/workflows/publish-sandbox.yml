@@ -30,7 +30,7 @@ jobs:
 
       - name: Compute lowercase owner
         run: |
-          echo "OWNER_LOWER=$(echo \"$GITHUB_REPOSITORY_OWNER\" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+          echo OWNER_LOWER=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]') >> $GITHUB_ENV
 
       - name: Build and push
         uses: docker/build-push-action@v4
