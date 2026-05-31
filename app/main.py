@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import asyncio
@@ -7,6 +7,11 @@ from .runtime import ExecutionRuntime
 from .models import TaskRequest
 from . import db
 from .verifier import run_verification
+try:
+    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+except Exception:
+    generate_latest = None
+    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4"
 
 app = FastAPI(title="Harness Runtime MVP")
 runtime = ExecutionRuntime()
@@ -110,6 +115,15 @@ async def get_report(task_id: str):
 @app.get("/metrics")
 async def list_metrics():
     return db.get_metrics()
+
+
+@app.get("/prometheus")
+async def prometheus_metrics():
+    """Expose Prometheus-formatted metrics for scraping."""
+    if not generate_latest:
+        return Response(content=b"# prometheus_client not available\n", media_type="text/plain")
+    data = generate_latest()
+    return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/metrics/{task_id}")

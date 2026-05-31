@@ -29,3 +29,20 @@ jobs:
       - name: Run acceptance matrix gate (FR-1..FR-10)
         run: |
           pytest -q tests/test_acceptance_matrix.py
+
+  sandbox:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull sandbox image from GHCR (or build fallback)
+        run: |
+          IMG=ghcr.io/${{ github.repository_owner }}/harness-runtime/sandbox:latest
+          if docker pull "$IMG"; then
+            echo "Pulled $IMG"
+          else
+            echo "Pull failed, building locally"
+            docker build -t hr-sandbox -f Dockerfile.sandbox .
+            IMG=hr-sandbox
+          fi
+          docker run --rm -v ${{ github.workspace }}:/work -w /work "$IMG" pytest -q tests/test_acceptance_matrix.py

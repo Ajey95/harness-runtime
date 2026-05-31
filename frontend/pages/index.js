@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import ReactFlow, { MiniMap, Controls, Background } from 'reactflow'
+import 'reactflow/dist/style.css'
 
 const API = 'http://localhost:8000'
 const REFRESH_MS = 5000
@@ -212,6 +214,35 @@ export default function Home() {
   const graphMiddleware = (selectedTask?.traces || []).filter((t) => stepCategory(t.step) === 'middleware')
   const graphToolCalls = (selectedTask?.traces || []).filter((t) => stepCategory(t.step) === 'tool-call')
 
+  const rfElements = useMemo(() => {
+    const nodes = (graphLifeNodes || []).map((n, i) => ({
+      id: n.id,
+      data: { label: n.label },
+      position: { x: i * 160, y: 50 },
+      style: { padding: 8, borderRadius: 6, border: `2px solid ${n.present ? '#16a34a' : '#cbd5e1'}` },
+    }))
+    const edges = []
+    for (let i = 0; i < nodes.length - 1; i++) {
+      edges.push({ id: `e${i}`, source: nodes[i].id, target: nodes[i + 1].id, animated: false })
+    }
+    return [...nodes, ...edges]
+  }, [graphLifeNodes])
+
+  const [selectedNode, setSelectedNode] = useState(null)
+  const [hoverNode, setHoverNode] = useState(null)
+
+  function onNodeClick(event, node) {
+    setSelectedNode(node)
+  }
+
+  function onNodeMouseEnter(event, node) {
+    setHoverNode(node)
+  }
+
+  function onNodeMouseLeave() {
+    setHoverNode(null)
+  }
+
   const card = {
     background: '#fff',
     border: '1px solid #e5e7eb',
@@ -360,7 +391,7 @@ export default function Home() {
             {!selectedTask && <p style={{ margin: 0 }}>No task selected.</p>}
             {selectedTask && (
               <>
-                <div style={{ fontSize: 12, marginBottom: 4 }}>Task: <strong>{selectedTask.task_id}</strong></div>
+                  <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}>
                 <div style={{ fontSize: 12, marginBottom: 4 }}>
                   Status:{' '}
                   <span style={{ color: statusColors[selectedTask.status] || statusColors.unknown }}>
@@ -369,6 +400,48 @@ export default function Home() {
                 </div>
                 <div style={{ fontSize: 12, marginBottom: 4 }}>Trace Events: {selectedTask.traces?.length || 0}</div>
               </>
+                </div>
+
+                <div className="mt-3 border rounded-lg" style={{ height: 320 }}>
+                  <ReactFlow
+                    nodes={rfElements.filter((e) => e.data)}
+                    edges={rfElements.filter((e) => !e.data)}
+                    fitView
+                    onNodeClick={onNodeClick}
+                    onNodeMouseEnter={onNodeMouseEnter}
+                    onNodeMouseLeave={onNodeMouseLeave}
+                    style={{ width: '100%', height: '100%' }}
+                  >
+                    <MiniMap />
+                    <Controls />
+                    <Background />
+                  </ReactFlow>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <div>
+                    {selectedNode ? (
+                      <div className="p-3 bg-white border rounded">
+                        <div className="font-semibold">{selectedNode.data.label}</div>
+                        <div className="text-sm text-slate-600 mt-1">Node ID: {selectedNode.id}</div>
+                        <pre className="mt-2 text-xs text-slate-700">{JSON.stringify(selectedNode, null, 2)}</pre>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-500">Click a node to inspect details</div>
+                    )}
+                  </div>
+
+                  <div>
+                    {hoverNode ? (
+                      <div className="p-3 bg-white border rounded">
+                        <div className="font-semibold">Hover: {hoverNode.data.label}</div>
+                        <div className="text-sm text-slate-600 mt-1">Preview of node properties</div>
+                        <div className="mt-2 text-xs text-slate-700">{Object.keys(hoverNode.data || {}).slice(0,5).map(k=>`${k}: ${String(hoverNode.data[k])}`).join('\n')}</div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-500">Hover a node to preview details</div>
+                    )}
+                  </div>
+                </div>
             )}
           </div>
 

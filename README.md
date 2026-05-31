@@ -110,3 +110,19 @@ When the repository is public, the presentation file `presentation/slide_deck.ht
 ## Contact / Credits
 
 - Created as an MVP scaffolding for the Harness Runtime PRD. Use and adapt freely for demos and hackathons.
+
+## Deployment
+
+This repository supports deploying the frontend to Vercel and the backend to Render.
+
+Secrets (store these in GitHub repository Settings → Secrets):
+
+- `OPENAI_API_KEY` — OpenAI API key used by the backend/runtime.
+- `RENDER_API_KEY` — API key for Render (for backend deploys).
+- `RENDER_SERVICE_ID` — Render service ID to trigger a deployment.
+- `VERCEL_TOKEN` — Vercel token for deployments (used by the GitHub Action).
+- `VERCEL_SCOPE` — (optional) Vercel team or user scope for the project.
+
+Quick deploy (GitHub Actions): push to `main` or trigger the `Deploy` workflow manually. The workflow will deploy the `frontend/` Next.js app to Vercel and trigger a Render deployment for the backend.
+
+Manual deployment hints are available in the repository docs.

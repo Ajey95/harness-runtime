@@ -8,6 +8,26 @@ from .middleware import ApprovalMiddleware
 from . import db
 from .codex_adapter import adapter as codex
 from .verifier import run_verification
+try:
+    from prometheus_client import Counter, Histogram
+except Exception:
+    # Fallback no-op metrics for environments without prometheus_client
+    class _NoOpMetric:
+        def inc(self, *a, **k):
+            return None
+
+        def time(self):
+            class _Ctx:
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, exc_type, exc, tb):
+                    return False
+
+            return _Ctx()
+
+    Counter = lambda *a, **k: _NoOpMetric()
+    Histogram = lambda *a, **k: _NoOpMetric()
 
 
 class ExecutionRuntime:
@@ -19,6 +39,10 @@ class ExecutionRuntime:
     def __init__(self) -> None:
         self.traces: Dict[str, List[TraceEntry]] = {}
         self.middleware = ApprovalMiddleware()
+        # Prometheus metrics
+        self.tasks_started = Counter("hr_tasks_started_total", "Total tasks started")
+        self.tasks_completed = Counter("hr_tasks_completed_total", "Total tasks completed")
+        self.verification_duration = Histogram("hr_verification_duration_seconds", "Verification duration seconds")
 
     @staticmethod
     def _trace_stage_summary(traces: List[TraceEntry]) -> Dict[str, Any]:
@@ -90,6 +114,10 @@ class ExecutionRuntime:
             )
 
         add("task_started", description)
+        try:
+            self.tasks_started.inc()
+        except Exception:
+            pass
         start_time = datetime.now(timezone.utc)
 
         # Analysis phase (simulated)
@@ -114,7 +142,7 @@ class ExecutionRuntime:
         if decision in {"pending_approval", "rejected"}:
             status = str(decision)
             add(status, "Task halted by approval policy")
-            traces_list = [t.dict() for t in traces]
+            traces_list = [t.model_dump() if hasattr(t, 'model_dump') else t.dict() for t in traces]
             stage_summary = self._trace_stage_summary(traces)
             db.save_traces(task_id, traces_list, status=status)
             db.save_report(
@@ -172,7 +200,8 @@ class ExecutionRuntime:
             pass
 
         add("verification_started", "Running verification checks")
-        verification = await run_verification(task_id, repo_path=repo_path)
+        with self.verification_duration.time():
+            verification = await run_verification(task_id, repo_path=repo_path)
         verification_status = verification["status"]
         add("verification_result", verification_status)
 
@@ -194,7 +223,7 @@ class ExecutionRuntime:
         )
         self.traces[task_id] = traces
         # persist traces
-        traces_list = [t.dict() for t in traces]
+        traces_list = [t.model_dump() if hasattr(t, 'model_dump') else t.dict() for t in traces]
         stage_summary = self._trace_stage_summary(traces)
         db.save_traces(task_id, traces_list, status=final_status)
         db.save_report(
@@ -219,9 +248,87 @@ class ExecutionRuntime:
                 ),
             },
         )
+        try:
+            self.tasks_completed.inc()
+        except Exception:
+            pass
         return result
 
     def get_traces(self, task_id: Optional[str] = None):
         if task_id:
             return self.traces.get(task_id)
         return self.traces
+
+    async def run_task_graph(self, description: str, repo_path: Optional[str] = None, task_id: Optional[str] = None):
+        """Run the task using the LangGraph adapter. This is an alternate
+        execution path that demonstrates LangGraph integration. It is not
+        invoked by default by `start_task`, but test or orchestration code
+        may call it directly.
+        """
+        task_id = task_id or str(uuid.uuid4())
+        traces: List[TraceEntry] = []
+
+        def add(step: str, detail: Optional[str] = None) -> None:
+            traces.append(
+                TraceEntry(
+                    timestamp=datetime.now(timezone.utc),
+                    step=step,
+                    detail=detail,
+                )
+            )
+
+        add("task_started", description)
+
+        async def node_analysis(ctx):
+            add("analysis", f"Inspecting repo: {repo_path or 'local'}")
+            analysis = await codex.run_analysis(repo_path or "local", description)
+            add("analysis_result", str(analysis))
+            ctx["analysis"] = analysis
+            return ctx
+
+        def node_middleware(ctx):
+            middleware_decision = self.middleware.evaluate_task({"task_id": task_id, "description": description})
+            add("middleware_decision", str(middleware_decision))
+            ctx["middleware_decision"] = middleware_decision
+            return ctx
+
+        async def node_propose(ctx):
+            proposal = await codex.propose_patch(description)
+            add("propose_patch", str(proposal))
+            ctx["proposal"] = proposal
+            return ctx
+
+        async def node_apply(ctx):
+            proposal = ctx.get("proposal")
+            applied = await codex.apply_patch(proposal, cwd=repo_path)
+            add("apply_patch", str(applied))
+            ctx["applied"] = applied
+            return ctx
+
+        async def node_verify(ctx):
+            add("verification_started", "Running verification checks")
+            verification = await run_verification(task_id, repo_path=repo_path)
+            add("verification_result", verification.get("status"))
+            ctx["verification"] = verification
+            return ctx
+
+        lg.add_node("analysis", node_analysis)
+        lg.add_node("middleware", node_middleware)
+        lg.add_node("propose", node_propose)
+        lg.add_node("apply", node_apply)
+        lg.add_node("verify", node_verify)
+        lg.add_edge("analysis", "middleware")
+        lg.add_edge("middleware", "propose")
+        lg.add_edge("propose", "apply")
+        lg.add_edge("apply", "verify")
+
+        context = {"task_id": task_id, "description": description, "repo_path": repo_path}
+        result_ctx = await lg.run("analysis", context)
+
+        # persist traces
+        traces_list = [t.model_dump() if hasattr(t, 'model_dump') else t.dict() for t in traces]
+        stage_summary = self._trace_stage_summary(traces)
+        db.save_traces(task_id, traces_list, status="completed")
+        db.save_report(task_id, "completed", {"task_id": task_id, "status": "completed", "stage_metrics": stage_summary})
+        self.traces[task_id] = traces
+        return TaskResult(task_id=task_id, status="completed", traces=traces)
