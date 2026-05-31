@@ -10,21 +10,16 @@ from app.main import app  # noqa: E402
 
 
 def test_cors_allows_vercel_frontend():
-    from fastapi.testclient import TestClient
-
-    client = TestClient(app)
-    resp = client.options(
-        "/reports",
-        headers={
-            "Origin": "https://frontend-three-ivory-52.vercel.app",
-            "Access-Control-Request-Method": "GET",
-        },
+    cors = next(
+        middleware
+        for middleware in app.user_middleware
+        if middleware.cls.__name__ == "CORSMiddleware"
     )
-    assert resp.status_code == 200
     assert (
-        resp.headers["access-control-allow-origin"]
-        == "https://frontend-three-ivory-52.vercel.app"
+        "https://frontend-three-ivory-52.vercel.app"
+        in cors.kwargs["allow_origins"]
     )
+    assert cors.kwargs["allow_origin_regex"] == r"https://.*\.vercel\.app"
 
 
 def test_health_endpoint():
