@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
 import asyncio
+import os
 import uuid
 
 from .runtime import ExecutionRuntime
@@ -18,7 +19,13 @@ except Exception:
 app = FastAPI(title="Harness Runtime MVP")
 runtime = ExecutionRuntime()
 
-# Allow CORS for local frontend development
+configured_origins = [
+    origin.strip()
+    for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
+# Allow CORS for local development and deployed Vercel frontends.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -29,7 +36,12 @@ app.add_middleware(
         "http://localhost:8001",
         "http://127.0.0.1:8001",
         "http://localhost:8000",
+        "https://frontend-three-ivory-52.vercel.app",
+        "https://frontend-ajeyas-projects-ac1f8c11.vercel.app",
+        "https://frontend-ajey95-ajeyas-projects-ac1f8c11.vercel.app",
+        *configured_origins,
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

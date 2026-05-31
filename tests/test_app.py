@@ -6,6 +6,25 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.main import health  # noqa: E402
+from app.main import app  # noqa: E402
+
+
+def test_cors_allows_vercel_frontend():
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    resp = client.options(
+        "/reports",
+        headers={
+            "Origin": "https://frontend-three-ivory-52.vercel.app",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert resp.status_code == 200
+    assert (
+        resp.headers["access-control-allow-origin"]
+        == "https://frontend-three-ivory-52.vercel.app"
+    )
 
 
 def test_health_endpoint():
