@@ -390,16 +390,15 @@ export default function Home() {
             <h3 style={{ marginTop: 0 }}>Task Summary</h3>
             {!selectedTask && <p style={{ margin: 0 }}>No task selected.</p>}
             {selectedTask && (
-              <>
-                  <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}>
-                <div style={{ fontSize: 12, marginBottom: 4 }}>
-                  Status:{' '}
-                  <span style={{ color: statusColors[selectedTask.status] || statusColors.unknown }}>
-                    {toTitle(selectedTask.status || 'unknown')}
-                  </span>
-                </div>
-                <div style={{ fontSize: 12, marginBottom: 4 }}>Trace Events: {selectedTask.traces?.length || 0}</div>
-              </>
+              <div>
+                <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}>
+                  <div style={{ fontSize: 12, marginBottom: 4 }}>
+                    Status:{' '}
+                    <span style={{ color: statusColors[selectedTask.status] || statusColors.unknown }}>
+                      {toTitle(selectedTask.status || 'unknown')}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, marginBottom: 4 }}>Trace Events: {selectedTask.traces?.length || 0}</div>
                 </div>
 
                 <div className="mt-3 border rounded-lg" style={{ height: 320 }}>
