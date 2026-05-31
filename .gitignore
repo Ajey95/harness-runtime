@@ -4,3 +4,5 @@ env/
 venv/
 .env
 *.pyc
+frontend/node_modules/
+frontend/.next/

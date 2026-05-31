@@ -1,8 +1,8 @@
 import sqlite3
 import json
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, Any
+from datetime import datetime, timezone
+from typing import Optional, Any, Dict, List
 
 DB_PATH = Path(__file__).resolve().parents[1] / "runtime.db"
 
@@ -48,6 +48,16 @@ def init_db() -> None:
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reports (
+            task_id TEXT PRIMARY KEY,
+            status TEXT,
+            report TEXT,
+            created_at TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -55,7 +65,7 @@ def init_db() -> None:
 def save_traces(task_id: str, traces: Any, status: str = "running") -> None:
     conn = _conn()
     cur = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     sql = (
         "INSERT OR REPLACE INTO traces (task_id, traces, "
         "status, created_at) VALUES (?, ?, ?, ?)"
@@ -110,7 +120,7 @@ def save_approval(
 ) -> None:
     conn = _conn()
     cur = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     sql = (
         "INSERT OR REPLACE INTO approvals (task_id, approved, approver, note, "
         "requested_at) VALUES (?, ?, ?, ?, ?)"
@@ -172,7 +182,7 @@ def get_all_approvals():
 def save_verification(task_id: str, status: str, result: Any = None) -> None:
     conn = _conn()
     cur = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     sql = (
         "INSERT OR REPLACE INTO verifications (task_id, status, result, "
         "executed_at) VALUES (?, ?, ?, ?)"
@@ -205,6 +215,240 @@ def get_verification(task_id: str):
         "result": json.loads(row["result"]) if row["result"] else None,
         "executed_at": row["executed_at"],
     }
+
+
+def save_report(task_id: str, status: str, report: Any) -> None:
+    conn = _conn()
+    cur = conn.cursor()
+    now = datetime.now(timezone.utc).isoformat()
+    sql = (
+        "INSERT OR REPLACE INTO reports (task_id, status, report, created_at) "
+        "VALUES (?, ?, ?, ?)"
+    )
+    cur.execute(
+        sql,
+        (
+            task_id,
+            status,
+            json.dumps(report, default=str),
+            now,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_report(task_id: str):
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM reports WHERE task_id = ?",
+        (task_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "task_id": row["task_id"],
+        "status": row["status"],
+        "report": json.loads(row["report"]) if row["report"] else None,
+        "created_at": row["created_at"],
+    }
+
+
+def get_reports():
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM reports ORDER BY created_at DESC",
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "task_id": r["task_id"],
+            "status": r["status"],
+            "report": json.loads(r["report"]) if r["report"] else None,
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
+
+
+def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+
+
+def _step_category(step: Optional[str]) -> str:
+    text = str(step or "")
+    if "verification" in text:
+        return "verification"
+    if "approval" in text or "risk" in text or "middleware" in text:
+        return "middleware"
+    if (
+        "tool_call" in text
+        or "propose_patch" in text
+        or "apply_patch" in text
+        or "rollback" in text
+    ):
+        return "tool_call"
+    return "reasoning"
+
+
+def _stage_metrics(traces: List[Dict[str, Any]]) -> Dict[str, Any]:
+    stage_counts = {
+        "reasoning": 0,
+        "middleware": 0,
+        "tool_call": 0,
+        "verification": 0,
+    }
+    stage_latency_ms = {
+        "reasoning": 0,
+        "middleware": 0,
+        "tool_call": 0,
+        "verification": 0,
+    }
+    degraded_signal_count = 0
+    approval_transitions = 0
+    verification_transitions = 0
+
+    for index, item in enumerate(traces):
+        category = _step_category(item.get("step"))
+        stage_counts[category] += 1
+        detail = str(item.get("detail", "")).lower()
+        if "degraded" in detail:
+            degraded_signal_count += 1
+        if "approval" in str(item.get("step", "")):
+            approval_transitions += 1
+        if "verification" in str(item.get("step", "")):
+            verification_transitions += 1
+
+        prev = traces[index - 1] if index > 0 else None
+        prev_ts = _parse_timestamp(prev.get("timestamp")) if prev else None
+        current_ts = _parse_timestamp(item.get("timestamp"))
+        if prev_ts and current_ts:
+            delta = int(max((current_ts - prev_ts).total_seconds() * 1000, 0))
+            stage_latency_ms[category] += delta
+
+    started_at = (
+        _parse_timestamp(traces[0].get("timestamp")) if traces else None
+    )
+    finished_at = (
+        _parse_timestamp(traces[-1].get("timestamp")) if traces else None
+    )
+    total_runtime_ms = None
+    if started_at and finished_at:
+        total_runtime_ms = int(
+            max((finished_at - started_at).total_seconds() * 1000, 0)
+        )
+
+    return {
+        "event_count": len(traces),
+        "stage_counts": stage_counts,
+        "stage_latency_ms": stage_latency_ms,
+        "approval_transitions": approval_transitions,
+        "verification_transitions": verification_transitions,
+        "degraded_signal_count": degraded_signal_count,
+        "trace_runtime_ms": total_runtime_ms,
+    }
+
+
+def get_metrics(task_id: Optional[str] = None) -> Dict[str, Any]:
+    conn = _conn()
+    cur = conn.cursor()
+
+    if task_id:
+        cur.execute("SELECT * FROM traces WHERE task_id = ?", (task_id,))
+    else:
+        cur.execute("SELECT * FROM traces ORDER BY created_at DESC")
+    trace_rows = cur.fetchall()
+
+    report_rows = {}
+    if task_id:
+        cur.execute("SELECT * FROM reports WHERE task_id = ?", (task_id,))
+    else:
+        cur.execute("SELECT * FROM reports")
+    for row in cur.fetchall():
+        report_rows[row["task_id"]] = row
+
+    conn.close()
+
+    tasks: List[Dict[str, Any]] = []
+    summary_status_counts: Dict[str, int] = {}
+    completed_duration_samples: List[int] = []
+    degraded_tasks = 0
+    pending_approval = 0
+    verification_failed = 0
+
+    for row in trace_rows:
+        task_key = row["task_id"]
+        traces = json.loads(row["traces"]) if row["traces"] else []
+        report_row = report_rows.get(task_key)
+        report = {}
+        if report_row and report_row["report"]:
+            report = json.loads(report_row["report"])
+
+        metrics = _stage_metrics(traces)
+        status = row["status"] or report.get("status") or "unknown"
+        summary_status_counts[status] = (
+            summary_status_counts.get(status, 0) + 1
+        )
+
+        duration_ms = report.get("duration_ms")
+        if isinstance(duration_ms, int):
+            completed_duration_samples.append(duration_ms)
+
+        if bool(report.get("verification_degraded")) or metrics[
+            "degraded_signal_count"
+        ] > 0:
+            degraded_tasks += 1
+        if status == "pending_approval":
+            pending_approval += 1
+        if status == "verification_failed":
+            verification_failed += 1
+
+        tasks.append(
+            {
+                "task_id": task_key,
+                "status": status,
+                "created_at": row["created_at"],
+                "risk": report.get("risk", "unknown"),
+                "verification_status": report.get("verification_status"),
+                "approval_required": report.get("approval_required"),
+                "middleware_decision": report.get("middleware_decision", {}),
+                "duration_ms": duration_ms,
+                "metrics": metrics,
+            }
+        )
+
+    avg_duration_ms = None
+    if completed_duration_samples:
+        avg_duration_ms = int(
+            sum(completed_duration_samples) / len(completed_duration_samples)
+        )
+
+    payload = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "summary": {
+            "total_tasks": len(tasks),
+            "status_counts": summary_status_counts,
+            "pending_approvals": pending_approval,
+            "verification_failed": verification_failed,
+            "degraded_tasks": degraded_tasks,
+            "average_duration_ms": avg_duration_ms,
+        },
+        "tasks": tasks,
+    }
+
+    if task_id and not tasks:
+        return {}
+    return payload
 
 
 init_db()
