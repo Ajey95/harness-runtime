@@ -28,6 +28,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Compute lowercase owner
+        run: |
+          echo "OWNER_LOWER=$(echo \"$GITHUB_REPOSITORY_OWNER\" | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
@@ -35,5 +39,5 @@ jobs:
           file: Dockerfile.sandbox
           push: true
           tags: |
-            ghcr.io/${{ toLower(github.repository_owner) }}/harness-runtime/sandbox:latest
-            ghcr.io/${{ toLower(github.repository_owner) }}/harness-runtime/sandbox:${{ github.sha }}
+            ghcr.io/${{ env.OWNER_LOWER }}/harness-runtime/sandbox:latest
+            ghcr.io/${{ env.OWNER_LOWER }}/harness-runtime/sandbox:${{ github.sha }}
