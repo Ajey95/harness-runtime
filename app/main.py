@@ -92,3 +92,16 @@ async def get_verify(task_id: str):
     if not ver:
         raise HTTPException(status_code=404, detail="verification not found")
     return ver
+
+
+@app.get("/reports")
+async def list_reports():
+    return db.get_reports()
+
+
+@app.get("/reports/{task_id}")
+async def get_report(task_id: str):
+    report = db.get_report(task_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="report not found")
+    return report

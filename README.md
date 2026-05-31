@@ -53,21 +53,24 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/verify/<task_id> -Method GET
 - `GET /verify/{task_id}` — get verification result
 - `POST /approvals/{task_id}` — set approval for a task (`approved`, `approver`, `note`)
 - `GET /approvals` — list approvals
+- `GET /reports` — list execution reports
+- `GET /reports/{task_id}` — get one execution report
 
 ## Architecture and features
 
 - **Execution Runtime**: orchestrates tasks, records trace entries across phases (analysis, propose, apply, verify).
-- **Middleware**: approval/risk classification stubs (pluggable hooks).
+- **Middleware**: keyword-based risk classification and approval-gated execution for medium/high-risk tasks.
 - **Codex Adapter**: placeholder adapter that simulates analysis and records tool-call outputs. Designed to be replaced with real Codex CLI subprocess integration.
-- **Verification Runner**: executes `pytest` and `flake8` (configurable) in a sandboxed command runner (uses timeouts and threads for Windows compatibility) and persists results to `runtime.db`.
+- **Verification Runner**: executes allowlisted checks (`pytest -q`, `flake8 app tests`) with timeouts and persists results to `runtime.db`.
+- **Execution Reports**: each task writes a final report with risk, approval state, verification status, and runtime duration.
 - **Observability**: traces and verifications are persisted to SQLite (`runtime.db`) and can be queried via HTTP.
 - **Dashboard**: a minimal Next.js scaffold and a simple static HTML dashboard in `dashboard/`.
 - **CI**: GitHub Actions workflow runs lint and tests.
 
 ## Security notes and limitations
 
-- The verifier executes commands on the host filesystem. For production use, run verification inside an isolated sandbox (Docker) and restrict allowed commands.
-- The Codex adapter currently simulates patching — replace with authenticated, audited subprocess invocation.
+- Verification and Codex command execution are allowlisted to prevent unrestricted shell commands.
+- Repository paths are validated before command execution.
 
 ## Files created for this deliverable
 

@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 
@@ -10,6 +11,18 @@ class CodexAdapter:
     commands. The `run_command` method executes shell commands and returns
     stdout/stderr/returncode.
     """
+
+    ALLOWED_COMMANDS = {
+        "echo Applying patch",
+    }
+
+    def _validate_cwd(self, cwd: Optional[str]) -> Optional[str]:
+        if not cwd:
+            return None
+        resolved = Path(cwd).resolve()
+        if not resolved.exists() or not resolved.is_dir():
+            raise ValueError("invalid execution directory")
+        return str(resolved)
 
     async def run_analysis(
         self,
@@ -40,12 +53,29 @@ class CodexAdapter:
         cwd: Optional[str] = None,
         timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
+        if cmd not in self.ALLOWED_COMMANDS:
+            return {
+                "cmd": cmd,
+                "returncode": None,
+                "stdout": "",
+                "stderr": "command not allowlisted",
+            }
+        try:
+            safe_cwd = self._validate_cwd(cwd)
+        except ValueError as exc:
+            return {
+                "cmd": cmd,
+                "returncode": None,
+                "stdout": "",
+                "stderr": str(exc),
+            }
+
         def run_sync():
             try:
                 completed = subprocess.run(
                     cmd,
                     shell=True,
-                    cwd=cwd,
+                    cwd=safe_cwd,
                     capture_output=True,
                     text=True,
                     timeout=timeout,

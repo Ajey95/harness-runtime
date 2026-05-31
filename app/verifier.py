@@ -1,7 +1,13 @@
 import asyncio
+from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from . import db
+
+ALLOWED_VERIFICATION_COMMANDS = {
+    "pytest -q",
+    "flake8 app tests",
+}
 
 
 async def _run_command(
@@ -42,6 +48,15 @@ async def _run_command(
     return await asyncio.to_thread(run_sync)
 
 
+def _sanitize_repo_path(repo_path: Optional[str]) -> Optional[str]:
+    if repo_path is None:
+        return None
+    resolved = Path(repo_path).resolve()
+    if not resolved.exists() or not resolved.is_dir():
+        raise ValueError("invalid repository path")
+    return str(resolved)
+
+
 async def run_verification(
     task_id: str,
     repo_path: Optional[str] = None,
@@ -55,15 +70,30 @@ async def run_verification(
     # Avoid shell-only constructs like `|| true`.
     commands = commands or [
         "pytest -q",
-        "flake8",
+        "flake8 app tests",
     ]
     results: List[Dict[str, Any]] = []
     status = "running"
     db.save_verification(task_id, status, None)
 
     try:
+        safe_repo_path = _sanitize_repo_path(repo_path)
         for cmd in commands:
-            res = await _run_command(cmd, cwd=repo_path, timeout=60)
+            if cmd not in ALLOWED_VERIFICATION_COMMANDS:
+                results.append(
+                    {
+                        "cmd": cmd,
+                        "returncode": None,
+                        "stdout": "",
+                        "stderr": "command not allowlisted",
+                    }
+                )
+                continue
+            res = await _run_command(
+                cmd,
+                cwd=safe_repo_path,
+                timeout=60,
+            )
             results.append(res)
 
         # determine overall status

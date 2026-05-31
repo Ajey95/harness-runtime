@@ -48,6 +48,16 @@ def init_db() -> None:
         )
         """
     )
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS reports (
+            task_id TEXT PRIMARY KEY,
+            status TEXT,
+            report TEXT,
+            created_at TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -205,6 +215,65 @@ def get_verification(task_id: str):
         "result": json.loads(row["result"]) if row["result"] else None,
         "executed_at": row["executed_at"],
     }
+
+
+def save_report(task_id: str, status: str, report: Any) -> None:
+    conn = _conn()
+    cur = conn.cursor()
+    now = datetime.utcnow().isoformat()
+    sql = (
+        "INSERT OR REPLACE INTO reports (task_id, status, report, created_at) "
+        "VALUES (?, ?, ?, ?)"
+    )
+    cur.execute(
+        sql,
+        (
+            task_id,
+            status,
+            json.dumps(report, default=str),
+            now,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_report(task_id: str):
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM reports WHERE task_id = ?",
+        (task_id,),
+    )
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "task_id": row["task_id"],
+        "status": row["status"],
+        "report": json.loads(row["report"]) if row["report"] else None,
+        "created_at": row["created_at"],
+    }
+
+
+def get_reports():
+    conn = _conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT * FROM reports ORDER BY created_at DESC",
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [
+        {
+            "task_id": r["task_id"],
+            "status": r["status"],
+            "report": json.loads(r["report"]) if r["report"] else None,
+            "created_at": r["created_at"],
+        }
+        for r in rows
+    ]
 
 
 init_db()

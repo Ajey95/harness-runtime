@@ -7,6 +7,7 @@ from .models import TraceEntry, TaskResult
 from .middleware import ApprovalMiddleware
 from . import db
 from .codex_adapter import adapter as codex
+from .verifier import run_verification
 
 
 class ExecutionRuntime:
@@ -38,6 +39,7 @@ class ExecutionRuntime:
             )
 
         add("task_started", description)
+        start_time = datetime.utcnow()
 
         # Analysis phase (simulated)
         add(
@@ -60,12 +62,32 @@ class ExecutionRuntime:
             approved = self.middleware.request_approval(req)
             add("approval_response", str(approved))
             if not approved:
+                approval_state = db.get_approval(task_id)
+                rejected = bool(approval_state and not approval_state["approved"])
+                status = "rejected" if rejected else "pending_approval"
+                add(status, "Task halted by approval policy")
                 traces_list = [t.dict() for t in traces]
-                db.save_traces(task_id, traces_list, status="rejected")
+                db.save_traces(task_id, traces_list, status=status)
+                db.save_report(
+                    task_id,
+                    status,
+                    {
+                        "task_id": task_id,
+                        "status": status,
+                        "risk": risk,
+                        "approval_required": True,
+                        "approval_state": approval_state,
+                        "verification_status": "not_started",
+                        "duration_ms": int(
+                            (datetime.utcnow() - start_time).total_seconds()
+                            * 1000
+                        ),
+                    },
+                )
                 self.traces[task_id] = traces
                 return TaskResult(
                     task_id=task_id,
-                    status="rejected",
+                    status=status,
                     traces=traces,
                 )
 
@@ -93,21 +115,39 @@ class ExecutionRuntime:
             # best-effort recording; ignore failures here
             pass
 
-        # Verification (simulated)
-        add("verification", "Running verification checks (simulated)")
-        # TODO: hook up real verification runner (tests, linters)
-        await asyncio.sleep(0.05)
-
-        add("completed", "Task completed successfully")
+        add("verification_started", "Running verification checks")
+        verification = await run_verification(task_id, repo_path=repo_path)
+        verification_status = verification["status"]
+        add("verification_result", verification_status)
+        final_status = (
+            "completed" if verification_status == "passed"
+            else "verification_failed"
+        )
+        add(final_status, "Task execution finished")
         result = TaskResult(
             task_id=task_id,
-            status="completed",
+            status=final_status,
             traces=traces,
         )
         self.traces[task_id] = traces
         # persist traces
         traces_list = [t.dict() for t in traces]
-        db.save_traces(task_id, traces_list, status="completed")
+        db.save_traces(task_id, traces_list, status=final_status)
+        db.save_report(
+            task_id,
+            final_status,
+            {
+                "task_id": task_id,
+                "status": final_status,
+                "risk": risk,
+                "approval_required": self.middleware.require_approval(risk),
+                "verification_status": verification_status,
+                "verification": verification.get("results"),
+                "duration_ms": int(
+                    (datetime.utcnow() - start_time).total_seconds() * 1000
+                ),
+            },
+        )
         return result
 
     def get_traces(self, task_id: Optional[str] = None):
