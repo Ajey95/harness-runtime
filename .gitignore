@@ -6,3 +6,10 @@ venv/
 *.pyc
 frontend/node_modules/
 frontend/.next/
+# Local runtime DB (should not be committed)
+runtime.db
+
+# Debug artifacts created during PR analysis
+.pr_latest.json
+.pr_patches.json
+scripts/inspect_adapter.py

@@ -19,14 +19,26 @@ class CodexAdapter:
 
     def _validate_cwd(self, cwd: Optional[str]) -> Path:
         sandbox = self.SANDBOX_ROOT.resolve()
-        if cwd and cwd != str(sandbox):
-            raise ValueError(
-                "path '{}' outside sandbox root '{}'".format(
-                    cwd,
-                    sandbox,
-                )
+        # Treat None or empty as the sandbox root. Allow any path that is
+        # the sandbox root or a subpath under it.
+        if not cwd:
+            return sandbox
+        try:
+            p = Path(cwd).resolve()
+        except Exception:
+            raise ValueError(f"invalid path: {cwd}")
+        # allow paths that are equal to sandbox or are inside it
+        try:
+            if p == sandbox or sandbox in p.parents:
+                return sandbox
+        except Exception:
+            pass
+        raise ValueError(
+            "path '{}' outside sandbox root '{}'".format(
+                cwd,
+                sandbox,
             )
-        return sandbox
+        )
 
     @staticmethod
     def _normalize_parts(parts: Sequence[str]) -> List[str]:
