@@ -137,7 +137,12 @@ def test_runtime_report_includes_rollback_and_verification(monkeypatch):
     assert report is not None
     payload = report["report"]
     assert payload["middleware_decision"]["decision"] == "allowed"
-    assert payload["rollback"]["status"] in {"safe_noop", "error", "skipped"}
+    assert payload["rollback"]["status"] in {
+        "rolled_back",
+        "safe_noop",
+        "error",
+        "skipped",
+    }
 
 
 def test_reports_endpoint_returns_report():

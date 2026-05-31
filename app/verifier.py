@@ -28,7 +28,11 @@ async def _run_command(
             if not argv:
                 raise ValueError("empty command")
             if shutil.which(argv[0]) is None:
-                raise FileNotFoundError(argv[0])
+                raise FileNotFoundError(
+                    "verification command binary not found: {}".format(
+                        argv[0]
+                    )
+                )
             completed = subprocess.run(
                 argv,
                 shell=False,
@@ -51,6 +55,7 @@ async def _run_command(
                 "returncode": None,
                 "stdout": "",
                 "stderr": repr(e) + "\n" + traceback.format_exc(),
+                "error_type": e.__class__.__name__,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
@@ -58,18 +63,16 @@ async def _run_command(
 
 
 def _sanitize_repo_path(repo_path: Optional[str]) -> str:
+    sandbox = str(SANDBOX_ROOT.resolve())
     if repo_path:
-        target = Path(repo_path).resolve()
-        sandbox = SANDBOX_ROOT.resolve()
-        if target != sandbox and sandbox not in target.parents:
+        if repo_path != sandbox:
             raise ValueError(
                 "repository path '{}' outside sandbox root '{}'".format(
                     repo_path,
                     SANDBOX_ROOT,
                 )
             )
-        return str(target)
-    return str(SANDBOX_ROOT)
+    return sandbox
 
 
 def _is_allowed_command(cmd: str) -> bool:
@@ -132,7 +135,7 @@ async def run_verification(
                 attempts=2,
                 timeout=60,
             )
-            if "FileNotFoundError" in str(res.get("stderr", "")):
+            if res.get("error_type") == "FileNotFoundError":
                 degraded = True
             results.append(res)
 

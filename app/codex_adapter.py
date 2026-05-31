@@ -18,16 +18,15 @@ class CodexAdapter:
     SANDBOX_ROOT = Path(__file__).resolve().parents[1]
 
     def _validate_cwd(self, cwd: Optional[str]) -> Path:
-        target = Path(cwd or str(self.SANDBOX_ROOT)).resolve()
         sandbox = self.SANDBOX_ROOT.resolve()
-        if target != sandbox and sandbox not in target.parents:
+        if cwd and cwd != str(sandbox):
             raise ValueError(
                 "path '{}' outside sandbox root '{}'".format(
-                    target,
+                    cwd,
                     sandbox,
                 )
             )
-        return target
+        return sandbox
 
     @staticmethod
     def _normalize_parts(parts: Sequence[str]) -> List[str]:
