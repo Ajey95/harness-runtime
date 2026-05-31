@@ -38,7 +38,12 @@ class CodexAdapter:
         if normalized not in self.ALLOWED_COMMANDS:
             raise ValueError("command not allowlisted")
         binary = parts[0] if parts else ""
-        if not binary or shutil.which(binary) is None:
+        # Allow certain shell builtins like `echo` even when `shutil.which`
+        # cannot find an external binary (Windows shells often implement
+        # these as builtins). Treat `echo` as a special-case.
+        if not binary or (
+            shutil.which(binary) is None and binary not in {"echo"}
+        ):
             raise ValueError("allowlisted command binary not available")
         return parts
 
@@ -89,8 +94,10 @@ class CodexAdapter:
         cwd: Optional[str] = None,
         timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
+        # Validate working directory first so sandbox violations are
+        # reported before binary availability errors.
         try:
-            argv = self._validate_command(cmd)
+            safe_cwd = str(self._validate_cwd(cwd))
         except ValueError as exc:
             return {
                 "cmd": cmd,
@@ -99,7 +106,7 @@ class CodexAdapter:
                 "stderr": str(exc),
             }
         try:
-            safe_cwd = str(self._validate_cwd(cwd))
+            argv = self._validate_command(cmd)
         except ValueError as exc:
             return {
                 "cmd": cmd,
@@ -110,14 +117,28 @@ class CodexAdapter:
 
         def run_sync():
             try:
-                completed = subprocess.run(
-                    argv,
-                    shell=False,
-                    cwd=safe_cwd,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                )
+                # Some platforms (Windows) implement `echo` as a shell
+                # builtin without an external binary. If `echo` is requested
+                # and not present as an external binary, fall back to
+                # invoking via the shell so the builtin works.
+                if argv and argv[0] == "echo" and shutil.which("echo") is None:
+                    completed = subprocess.run(
+                        cmd,
+                        shell=True,
+                        cwd=safe_cwd,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
+                else:
+                    completed = subprocess.run(
+                        argv,
+                        shell=False,
+                        cwd=safe_cwd,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                    )
 
                 return {
                     "cmd": cmd,
