@@ -181,7 +181,7 @@ export default function Home() {
           ...entry,
           index: idx + 1,
           category,
-          delta: idx > 0 ? deltaMs(items[idx - 1]?.timestamp, entry.timestamp) : null,
+          deltaMs: idx > 0 ? deltaMs(items[idx - 1]?.timestamp, entry.timestamp) : null,
         }
       })
       .filter((item) => timelineFilters[item.category])
@@ -325,7 +325,7 @@ export default function Home() {
                 </div>
                 <div style={{ fontSize: 12, color: '#334155', marginTop: 2 }}>
                   Category: {toTitle(entry.category)}
-                  {entry.delta != null ? ` · +${entry.delta} ms from previous event` : ''}
+                  {entry.deltaMs != null ? ` · +${entry.deltaMs} ms from previous event` : ''}
                 </div>
                 {entry.detail && <div style={{ fontSize: 12, marginTop: 2 }}>{entry.detail}</div>}
               </div>
