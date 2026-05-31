@@ -1,13 +1,14 @@
 import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from . import db
 
 ALLOWED_VERIFICATION_COMMANDS = {
     "pytest -q",
     "flake8 app tests",
 }
+SANDBOX_ROOT = Path(__file__).resolve().parents[1]
 
 
 async def _run_command(
@@ -34,7 +35,7 @@ async def _run_command(
                 "returncode": completed.returncode,
                 "stdout": completed.stdout,
                 "stderr": completed.stderr,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         except Exception as e:
             return {
@@ -42,19 +43,21 @@ async def _run_command(
                 "returncode": None,
                 "stdout": "",
                 "stderr": repr(e) + "\n" + traceback.format_exc(),
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
     return await asyncio.to_thread(run_sync)
 
 
-def _sanitize_repo_path(repo_path: Optional[str]) -> Optional[str]:
-    if repo_path is None:
-        return None
-    resolved = Path(repo_path).resolve()
-    if not resolved.exists() or not resolved.is_dir():
-        raise ValueError("invalid repository path")
-    return str(resolved)
+def _sanitize_repo_path(repo_path: Optional[str]) -> str:
+    if repo_path and repo_path != str(SANDBOX_ROOT):
+        raise ValueError(
+            "repository path '{}' outside sandbox root '{}'".format(
+                repo_path,
+                SANDBOX_ROOT,
+            )
+        )
+    return str(SANDBOX_ROOT)
 
 
 async def run_verification(

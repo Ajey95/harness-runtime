@@ -1,7 +1,7 @@
 import sqlite3
 import json
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Any
 
 DB_PATH = Path(__file__).resolve().parents[1] / "runtime.db"
@@ -65,7 +65,7 @@ def init_db() -> None:
 def save_traces(task_id: str, traces: Any, status: str = "running") -> None:
     conn = _conn()
     cur = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     sql = (
         "INSERT OR REPLACE INTO traces (task_id, traces, "
         "status, created_at) VALUES (?, ?, ?, ?)"
@@ -120,7 +120,7 @@ def save_approval(
 ) -> None:
     conn = _conn()
     cur = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     sql = (
         "INSERT OR REPLACE INTO approvals (task_id, approved, approver, note, "
         "requested_at) VALUES (?, ?, ?, ?, ?)"
@@ -182,7 +182,7 @@ def get_all_approvals():
 def save_verification(task_id: str, status: str, result: Any = None) -> None:
     conn = _conn()
     cur = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     sql = (
         "INSERT OR REPLACE INTO verifications (task_id, status, result, "
         "executed_at) VALUES (?, ?, ?, ?)"
@@ -220,7 +220,7 @@ def get_verification(task_id: str):
 def save_report(task_id: str, status: str, report: Any) -> None:
     conn = _conn()
     cur = conn.cursor()
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     sql = (
         "INSERT OR REPLACE INTO reports (task_id, status, report, created_at) "
         "VALUES (?, ?, ?, ?)"

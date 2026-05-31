@@ -15,14 +15,17 @@ class CodexAdapter:
     ALLOWED_COMMANDS = {
         "echo Applying patch",
     }
+    SANDBOX_ROOT = Path(__file__).resolve().parents[1]
 
-    def _validate_cwd(self, cwd: Optional[str]) -> Optional[str]:
-        if not cwd:
-            return None
-        resolved = Path(cwd).resolve()
-        if not resolved.exists() or not resolved.is_dir():
-            raise ValueError("invalid execution directory")
-        return str(resolved)
+    def _validate_cwd(self, cwd: Optional[str]) -> str:
+        if cwd and cwd != str(self.SANDBOX_ROOT):
+            raise ValueError(
+                "path '{}' outside sandbox root '{}'".format(
+                    cwd,
+                    self.SANDBOX_ROOT,
+                )
+            )
+        return str(self.SANDBOX_ROOT)
 
     async def run_analysis(
         self,

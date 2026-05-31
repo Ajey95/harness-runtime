@@ -1,6 +1,6 @@
 import uuid
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from .models import TraceEntry, TaskResult
@@ -32,14 +32,14 @@ class ExecutionRuntime:
         def add(step: str, detail: Optional[str] = None) -> None:
             traces.append(
                 TraceEntry(
-                    timestamp=datetime.utcnow(),
+                    timestamp=datetime.now(timezone.utc),
                     step=step,
                     detail=detail,
                 )
             )
 
         add("task_started", description)
-        start_time = datetime.utcnow()
+        start_time = datetime.now(timezone.utc)
 
         # Analysis phase (simulated)
         add(
@@ -63,7 +63,9 @@ class ExecutionRuntime:
             add("approval_response", str(approved))
             if not approved:
                 approval_state = db.get_approval(task_id)
-                rejected = bool(approval_state and not approval_state["approved"])
+                rejected = bool(
+                    approval_state and not approval_state["approved"]
+                )
                 status = "rejected" if rejected else "pending_approval"
                 add(status, "Task halted by approval policy")
                 traces_list = [t.dict() for t in traces]
@@ -79,7 +81,9 @@ class ExecutionRuntime:
                         "approval_state": approval_state,
                         "verification_status": "not_started",
                         "duration_ms": int(
-                            (datetime.utcnow() - start_time).total_seconds()
+                            (
+                                datetime.now(timezone.utc) - start_time
+                            ).total_seconds()
                             * 1000
                         ),
                     },
@@ -144,7 +148,9 @@ class ExecutionRuntime:
                 "verification_status": verification_status,
                 "verification": verification.get("results"),
                 "duration_ms": int(
-                    (datetime.utcnow() - start_time).total_seconds() * 1000
+                    (
+                        datetime.now(timezone.utc) - start_time
+                    ).total_seconds() * 1000
                 ),
             },
         )
