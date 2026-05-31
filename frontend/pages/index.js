@@ -2,7 +2,19 @@ import { useEffect, useMemo, useState } from 'react'
 import ReactFlow, { MiniMap, Controls, Background } from 'reactflow'
 import 'reactflow/dist/style.css'
 
-const API = process.env.NEXT_PUBLIC_HR_API || 'http://localhost:8000'
+const RENDER_API = 'https://harness-runtime-api.onrender.com'
+const LOCAL_API = 'http://127.0.0.1:8002'
+
+function resolveApiBase() {
+  if (process.env.NEXT_PUBLIC_HR_API) return process.env.NEXT_PUBLIC_HR_API
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname
+    if (host === 'localhost' || host === '127.0.0.1') return LOCAL_API
+  }
+  return RENDER_API
+}
+
+const API = resolveApiBase()
 const REFRESH_MS = 1500
 
 const statusColors = {

@@ -9,6 +9,7 @@ frontend/.next/
 .next/
 .vercel/
 frontend/.vercel/
+.logs/
 # Local runtime DB (should not be committed)
 runtime.db
 
